@@ -8,14 +8,72 @@ import * as nostalgistModule from '../src/composables/nostalgist.js'
 function fakeCanvas() {
   const attributes = new Map()
   const classes = new Set()
+  let connected = false
+  let focusCalls = 0
+  let removeCalls = 0
 
   return {
     classList: {
       add(...names) { names.forEach((name) => classes.add(name)) },
       contains(name) { return classes.has(name) },
     },
+    connect() { connected = true },
+    focus() { focusCalls += 1 },
+    get focusCalls() { return focusCalls },
     getAttribute(name) { return attributes.get(name) ?? null },
+    get isConnected() { return connected },
+    remove() {
+      connected = false
+      removeCalls += 1
+    },
+    get removeCalls() { return removeCalls },
     setAttribute(name, value) { attributes.set(name, String(value)) },
+  }
+}
+
+function fakeDocument() {
+  const canvases = []
+  return {
+    canvases,
+    createElement(tagName) {
+      assert.equal(tagName, 'canvas')
+      const canvas = fakeCanvas()
+      canvases.push(canvas)
+      return canvas
+    },
+  }
+}
+
+function fakeWrapper() {
+  return {
+    children: [],
+    append(element) {
+      element.connect()
+      if (!this.children.includes(element)) this.children.push(element)
+    },
+  }
+}
+
+function deferred() {
+  let resolve
+  let reject
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise
+    reject = rejectPromise
+  })
+  return { promise, reject, resolve }
+}
+
+function fakeEmulator(canvas, start) {
+  let exitCalls = 0
+  return {
+    get exitCalls() { return exitCalls },
+    exit() {
+      exitCalls += 1
+      canvas.remove()
+    },
+    getCanvas() { return canvas },
+    start,
   }
 }
 
@@ -52,6 +110,92 @@ test('buildEmulatorOptions retains emulator configuration and supplied canvas', 
   assert.equal(options.element, canvas)
   assert.equal(options.retroarchConfig.input_player1_a, 'k')
   assert.equal(options.retroarchConfig.rewind_enable, true)
+})
+
+test('a rejected emulator start is exited and a later boot prepares a fresh instance', async () => {
+  const documentRef = fakeDocument()
+  const navigatorRef = {}
+  const startError = new Error('start failed')
+  const prepared = []
+
+  async function prepare({ element }) {
+    const emulator = fakeEmulator(
+      element,
+      prepared.length === 0
+        ? async () => { throw startError }
+        : async () => {},
+    )
+    prepared.push(emulator)
+    return emulator
+  }
+
+  const controls = emulatorModule.useEmulator({
+    documentRef,
+    navigatorRef,
+    prepare,
+    registerBeforeUnmount: () => {},
+  })
+  controls.wrapperRef.value = fakeWrapper()
+
+  await assert.rejects(
+    controls.boot({ core: 'fbneo', rom: 'game.zip' }),
+    (error) => error === startError,
+  )
+  assert.equal(controls.instance.value, null)
+  assert.equal(controls.canvas(), null)
+  assert.equal(prepared[0].exitCalls, 1)
+
+  const second = await controls.boot({ core: 'fbneo', rom: 'game.zip' })
+  assert.equal(prepared.length, 2)
+  assert.equal(second, prepared[1])
+  assert.equal(controls.instance.value, prepared[1])
+
+  await controls.destroy()
+})
+
+test('destroying during start prevents stale boot work after cleanup', async () => {
+  const documentRef = fakeDocument()
+  const startEntered = deferred()
+  const startGate = deferred()
+  let wakeLockRequests = 0
+  let emulator
+  const navigatorRef = {
+    wakeLock: {
+      async request() {
+        wakeLockRequests += 1
+        return { async release() {} }
+      },
+    },
+  }
+
+  async function prepare({ element }) {
+    emulator = fakeEmulator(element, async () => {
+      startEntered.resolve()
+      await startGate.promise
+    })
+    return emulator
+  }
+
+  const controls = emulatorModule.useEmulator({
+    documentRef,
+    navigatorRef,
+    prepare,
+    registerBeforeUnmount: () => {},
+  })
+  controls.wrapperRef.value = fakeWrapper()
+
+  const bootPromise = controls.boot({ core: 'fbneo', rom: 'game.zip' })
+  await startEntered.promise
+  await controls.destroy()
+  startGate.resolve()
+
+  assert.equal(await bootPromise, null)
+  assert.equal(documentRef.canvases[0].focusCalls, 0)
+  assert.equal(wakeLockRequests, 0)
+  assert.equal(emulator.exitCalls, 1)
+  assert.equal(controls.instance.value, null)
+  assert.equal(controls.canvas(), null)
+  assert.equal(controls.error.value, null)
 })
 
 test('input settings explain that remapped controls apply after re-entering the game', async () => {

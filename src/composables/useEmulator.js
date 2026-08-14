@@ -18,7 +18,12 @@ export function createPortalCanvas(documentRef = globalThis.document) {
   return canvas
 }
 
-export function useEmulator() {
+export function useEmulator({
+  documentRef = globalThis.document,
+  navigatorRef = globalThis.navigator,
+  prepare = prepareEmulator,
+  registerBeforeUnmount = onBeforeUnmount,
+} = {}) {
   // Where Nostalgist's generated canvas gets inserted.
   const wrapperRef = ref(null)
   const booting = ref(false)
@@ -28,22 +33,36 @@ export function useEmulator() {
   // Cached for WebRTC's canvas.captureStream() call later
   let currentCanvas = null
   let wakeLock = null
+  let lifecycleEpoch = 0
+
+  async function cleanupBoot(emu, canvasElement, emulatorCanvas = null, exitEmulator = true) {
+    if (instance.value === emu) instance.value = null
+    if (currentCanvas === emulatorCanvas || currentCanvas === canvasElement) currentCanvas = null
+    if (exitEmulator) {
+      try { await emu?.exit?.() } catch {}
+    }
+    emulatorCanvas?.remove?.()
+    if (canvasElement !== emulatorCanvas) canvasElement?.remove?.()
+  }
 
   async function boot({ core, rom, romUrl, romFileName, bios = [], retroarchConfig = {}, shader }) {
     if (!wrapperRef.value) throw new Error('wrapper not mounted')
     if (instance.value) return instance.value
     booting.value = true
     error.value = null
+    const bootEpoch = lifecycleEpoch
     let canvasElement = null
+    let emulatorCanvas = null
+    let emu = null
     try {
       // Accept either a unified `rom` (object | array | url) or the legacy
       // romUrl/romFileName pair. Normalising here keeps callers flexible.
       const romInput = rom !== undefined
         ? rom
         : (romFileName ? { fileName: romFileName, fileContent: romUrl } : romUrl)
-      canvasElement = createPortalCanvas()
+      canvasElement = createPortalCanvas(documentRef)
       wrapperRef.value.append(canvasElement)
-      const emu = await prepareEmulator({
+      emu = await prepare({
         core,
         rom: romInput,
         bios,
@@ -55,32 +74,56 @@ export function useEmulator() {
       // Re-check mount: prepareEmulator is async (seconds), the component may
       // have been torn down while we waited (e.g. guest role arrived and the
       // v-if flipped). Bail cleanly instead of crashing on a null wrapper.
-      if (!wrapperRef.value) {
-        try { await emu.exit() } catch {}
-        canvasElement.remove()
+      if (bootEpoch !== lifecycleEpoch || !wrapperRef.value) {
+        await cleanupBoot(emu, canvasElement)
         return null
       }
       instance.value = emu
 
-      const canvas = emu.getCanvas()
-      currentCanvas = canvas
-      if (!canvas.isConnected) wrapperRef.value.append(canvas)
+      emulatorCanvas = emu.getCanvas()
+      currentCanvas = emulatorCanvas
+      if (!emulatorCanvas.isConnected) wrapperRef.value.append(emulatorCanvas)
 
-      try { globalThis.navigator.mediaDevices.getUserMedia = null } catch {}
+      try { navigatorRef.mediaDevices.getUserMedia = null } catch {}
       try { await emu.start() }
-      finally { try { globalThis.navigator.mediaDevices.getUserMedia = originalGetUserMedia } catch {} }
+      finally { try { navigatorRef.mediaDevices.getUserMedia = originalGetUserMedia } catch {} }
 
-      canvas.focus({ preventScroll: true })
+      // destroy() invalidates the epoch before releasing the old instance. If
+      // navigation/unmount happened while start() was pending, the stale boot
+      // must not refocus the page or acquire a fresh wake lock afterwards.
+      if (
+        bootEpoch !== lifecycleEpoch
+        || !wrapperRef.value
+        || instance.value !== emu
+      ) {
+        await cleanupBoot(
+          emu,
+          canvasElement,
+          emulatorCanvas,
+          instance.value === emu,
+        )
+        return null
+      }
 
-      try { wakeLock = await navigator.wakeLock?.request('screen') } catch {}
+      emulatorCanvas.focus({ preventScroll: true })
+
+      try { wakeLock = await navigatorRef?.wakeLock?.request('screen') } catch {}
 
       return emu
     } catch (err) {
-      canvasElement?.remove()
+      const staleBoot = bootEpoch !== lifecycleEpoch || !wrapperRef.value
+        || (emu !== null && instance.value !== emu)
+      await cleanupBoot(
+        emu,
+        canvasElement,
+        emulatorCanvas,
+        !staleBoot,
+      )
+      if (staleBoot) return null
       error.value = err
       throw err
     } finally {
-      booting.value = false
+      if (bootEpoch === lifecycleEpoch) booting.value = false
     }
   }
 
@@ -124,14 +167,15 @@ export function useEmulator() {
   async function toggleFullscreen() {
     const el = wrapperRef.value
     if (!el) return
-    if (document.fullscreenElement) {
-      await document.exitFullscreen?.()
+    if (documentRef.fullscreenElement) {
+      await documentRef.exitFullscreen?.()
     } else {
       await el.requestFullscreen?.()
     }
   }
 
   async function destroy() {
+    lifecycleEpoch += 1
     const inst = instance.value
     instance.value = null
     currentCanvas = null
@@ -141,7 +185,7 @@ export function useEmulator() {
     try { await inst.exit() } catch {}
   }
 
-  onBeforeUnmount(() => { destroy() })
+  registerBeforeUnmount(() => { destroy() })
 
   return {
     wrapperRef,
