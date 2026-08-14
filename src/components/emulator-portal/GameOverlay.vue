@@ -175,7 +175,6 @@ const canFullscreen = hasFs && !isIOS
 @media (max-width: 768px) {
   .bar-btn-label { display: none; }
   .bar-btn { padding: 6px; min-width: 36px; min-height: 36px; }
-  .bar-btn-keys { display: none; }
   .bar-title { font-size: 13px; }
   .bar-core { display: none; }
   .player-bar { padding: 8px 10px; }

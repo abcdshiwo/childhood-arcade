@@ -80,8 +80,15 @@ defineExpose({
 }
 /* Nostalgist's canvas is inserted via JS so the rule has to escape :deep() */
 .portal :deep(.portal-canvas) {
+  display: block;
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   max-height: 100%;
+  object-fit: contain;
+  position: static;
+  inset: auto;
+  z-index: auto;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   background: #000;

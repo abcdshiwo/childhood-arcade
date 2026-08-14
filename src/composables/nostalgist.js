@@ -23,10 +23,6 @@ const DEFAULT_RETROARCH_CONFIG = {
 }
 
 /**
- * Prepare a Nostalgist instance (loads core + ROM + BIOS but does NOT start
- * the emulator loop yet). Call `.start()` on the returned instance once the
- * canvas is in the DOM.
- *
  * @param {Object} opts
  * @param {string} opts.core
  * @param {string} opts.romUrl
@@ -34,8 +30,9 @@ const DEFAULT_RETROARCH_CONFIG = {
  * @param {Array<{fileName,fileContent}>} [opts.bios]
  * @param {Object} [opts.retroarchConfig]
  * @param {string} [opts.shader]
+ * @param {HTMLCanvasElement} [opts.element]
  */
-export async function prepareEmulator({
+export function buildEmulatorOptions({
   core,
   rom,           // string | { fileName, fileContent } | Array<{fileName, fileContent}>
   romUrl,        // legacy
@@ -43,6 +40,7 @@ export async function prepareEmulator({
   bios = [],
   retroarchConfig = {},
   shader,
+  element,
 }) {
   // Normalize legacy arguments. When `rom` isn't passed, fall back to
   // romUrl/romFileName; otherwise pass `rom` through (Nostalgist accepts
@@ -64,6 +62,16 @@ export async function prepareEmulator({
   }
   if (bios?.length) options.bios = bios
   if (shader) options.shader = shader
+  if (element) options.element = element
 
-  return Nostalgist.prepare(options)
+  return options
+}
+
+/**
+ * Prepare a Nostalgist instance (loads core + ROM + BIOS but does NOT start
+ * the emulator loop yet). Call `.start()` on the returned instance once the
+ * canvas is in the DOM.
+ */
+export async function prepareEmulator(options) {
+  return Nostalgist.prepare(buildEmulatorOptions(options))
 }

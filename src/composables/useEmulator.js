@@ -11,6 +11,13 @@ import { prepareEmulator } from './nostalgist.js'
 const originalGetUserMedia = globalThis.navigator?.mediaDevices?.getUserMedia
   ?.bind(globalThis.navigator.mediaDevices)
 
+export function createPortalCanvas(documentRef = globalThis.document) {
+  const canvas = documentRef.createElement('canvas')
+  canvas.setAttribute('tabindex', '-1')
+  canvas.classList.add('portal-canvas')
+  return canvas
+}
+
 export function useEmulator() {
   // Where Nostalgist's generated canvas gets inserted.
   const wrapperRef = ref(null)
@@ -27,28 +34,37 @@ export function useEmulator() {
     if (instance.value) return instance.value
     booting.value = true
     error.value = null
+    let canvasElement = null
     try {
       // Accept either a unified `rom` (object | array | url) or the legacy
       // romUrl/romFileName pair. Normalising here keeps callers flexible.
       const romInput = rom !== undefined
         ? rom
         : (romFileName ? { fileName: romFileName, fileContent: romUrl } : romUrl)
-      const emu = await prepareEmulator({ core, rom: romInput, bios, retroarchConfig, shader })
+      canvasElement = createPortalCanvas()
+      wrapperRef.value.append(canvasElement)
+      const emu = await prepareEmulator({
+        core,
+        rom: romInput,
+        bios,
+        retroarchConfig,
+        shader,
+        element: canvasElement,
+      })
 
       // Re-check mount: prepareEmulator is async (seconds), the component may
       // have been torn down while we waited (e.g. guest role arrived and the
       // v-if flipped). Bail cleanly instead of crashing on a null wrapper.
       if (!wrapperRef.value) {
         try { await emu.exit() } catch {}
+        canvasElement.remove()
         return null
       }
       instance.value = emu
 
       const canvas = emu.getCanvas()
       currentCanvas = canvas
-      canvas.setAttribute('tabindex', '-1')
-      canvas.classList.add('portal-canvas')
-      wrapperRef.value.append(canvas)
+      if (!canvas.isConnected) wrapperRef.value.append(canvas)
 
       try { globalThis.navigator.mediaDevices.getUserMedia = null } catch {}
       try { await emu.start() }
@@ -60,6 +76,7 @@ export function useEmulator() {
 
       return emu
     } catch (err) {
+      canvasElement?.remove()
       error.value = err
       throw err
     } finally {

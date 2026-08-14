@@ -40,6 +40,8 @@
         </div>
       </section>
 
+      <p class="is-note">键位保存在当前浏览器，重新进入游戏后生效。</p>
+
       <footer class="is-foot">
         <button class="is-reset" @click="tab === 'kb' ? resetKeyboard() : resetGamepad()">
           重置{{ tab === 'kb' ? '键盘' : '手柄' }}
@@ -225,6 +227,14 @@ onBeforeUnmount(() => {
   background: rgba(10,132,255,0.22);
   border-color: rgba(10,132,255,0.5);
   color: #7ac7ff;
+}
+
+.is-note {
+  margin: 0;
+  padding: 0 18px 12px;
+  color: rgba(255,255,255,0.5);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .is-foot {
