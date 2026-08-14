@@ -34,6 +34,7 @@ export function useEmulator({
   let currentCanvas = null
   let wakeLock = null
   let lifecycleEpoch = 0
+  let activeBoots = 0
 
   async function cleanupBoot(emu, canvasElement, emulatorCanvas = null, exitEmulator = true) {
     if (instance.value === emu) instance.value = null
@@ -48,6 +49,7 @@ export function useEmulator({
   async function boot({ core, rom, romUrl, romFileName, bios = [], retroarchConfig = {}, shader }) {
     if (!wrapperRef.value) throw new Error('wrapper not mounted')
     if (instance.value) return instance.value
+    activeBoots += 1
     booting.value = true
     error.value = null
     const bootEpoch = lifecycleEpoch
@@ -107,7 +109,27 @@ export function useEmulator({
 
       emulatorCanvas.focus({ preventScroll: true })
 
-      try { wakeLock = await navigatorRef?.wakeLock?.request('screen') } catch {}
+      let acquiredWakeLock = null
+      try { acquiredWakeLock = await navigatorRef?.wakeLock?.request('screen') } catch {}
+
+      // A wake-lock request can remain pending after navigation. Never attach
+      // a late lock (or report a successful boot) once destroy() invalidated
+      // this lifecycle epoch.
+      if (
+        bootEpoch !== lifecycleEpoch
+        || !wrapperRef.value
+        || instance.value !== emu
+      ) {
+        try { await acquiredWakeLock?.release?.() } catch {}
+        await cleanupBoot(
+          emu,
+          canvasElement,
+          emulatorCanvas,
+          instance.value === emu,
+        )
+        return null
+      }
+      wakeLock = acquiredWakeLock
 
       return emu
     } catch (err) {
@@ -123,7 +145,8 @@ export function useEmulator({
       error.value = err
       throw err
     } finally {
-      if (bootEpoch === lifecycleEpoch) booting.value = false
+      activeBoots = Math.max(0, activeBoots - 1)
+      booting.value = activeBoots > 0
     }
   }
 

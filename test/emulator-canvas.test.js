@@ -196,6 +196,53 @@ test('destroying during start prevents stale boot work after cleanup', async () 
   assert.equal(controls.instance.value, null)
   assert.equal(controls.canvas(), null)
   assert.equal(controls.error.value, null)
+  assert.equal(controls.booting.value, false)
+})
+
+test('a wake lock resolved after destroy is released and the stale boot is cancelled', async () => {
+  const documentRef = fakeDocument()
+  const wakeRequestEntered = deferred()
+  const wakeRequestGate = deferred()
+  let releaseCalls = 0
+  let emulator
+  const navigatorRef = {
+    wakeLock: {
+      async request() {
+        wakeRequestEntered.resolve()
+        return wakeRequestGate.promise
+      },
+    },
+  }
+
+  async function prepare({ element }) {
+    emulator = fakeEmulator(element, async () => {})
+    return emulator
+  }
+
+  const controls = emulatorModule.useEmulator({
+    documentRef,
+    navigatorRef,
+    prepare,
+    registerBeforeUnmount: () => {},
+  })
+  controls.wrapperRef.value = fakeWrapper()
+
+  const bootPromise = controls.boot({ core: 'fbneo', rom: 'game.zip' })
+  await wakeRequestEntered.promise
+  await controls.destroy()
+  wakeRequestGate.resolve({
+    async release() { releaseCalls += 1 },
+  })
+
+  assert.equal(await bootPromise, null)
+  assert.equal(releaseCalls, 1)
+  assert.equal(emulator.exitCalls, 1)
+  assert.equal(controls.instance.value, null)
+  assert.equal(controls.canvas(), null)
+  assert.equal(controls.booting.value, false)
+
+  await controls.destroy()
+  assert.equal(releaseCalls, 1)
 })
 
 test('input settings explain that remapped controls apply after re-entering the game', async () => {
