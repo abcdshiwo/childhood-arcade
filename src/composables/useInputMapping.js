@@ -44,6 +44,14 @@ export function normalizeKeyboardKey(rawKey, code = '', location = 0) {
   const keypadCode = eventCode.match(/^Numpad([0-9])$/)
   if (keypadCode) return `keypad${keypadCode[1]}`
 
+  const numpadOperators = {
+    NumpadMultiply: 'multiply',
+    NumpadDivide: 'divide',
+    NumpadAdd: 'add',
+    NumpadSubtract: 'subtract',
+  }
+  if (numpadOperators[eventCode]) return numpadOperators[eventCode]
+
   if (key === ' ') return 'space'
   if (key === 'ArrowUp') return 'up'
   if (key === 'ArrowDown') return 'down'
@@ -97,6 +105,22 @@ export function keyboardEventInit(key) {
     }
   }
 
+  const numpadOperators = {
+    multiply: { key: '*', code: 'NumpadMultiply' },
+    divide: { key: '/', code: 'NumpadDivide' },
+    add: { key: '+', code: 'NumpadAdd' },
+    subtract: { key: '-', code: 'NumpadSubtract' },
+  }
+  if (numpadOperators[normalized]) {
+    return {
+      ...numpadOperators[normalized],
+      location: 3,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }
+  }
+
   const domKey = {
     up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
     enter: 'Enter', space: ' ', shift: 'Shift', rshift: 'Shift',
@@ -107,7 +131,7 @@ export function keyboardEventInit(key) {
     enter: 'Enter', space: 'Space', shift: 'ShiftLeft', rshift: 'ShiftRight',
     escape: 'Escape',
   }
-  const functionKey = normalized.match(/^f([1-9]|1[0-9]|2[0-4])$/)
+  const functionKey = normalized.match(/^f([1-9]|1[0-5])$/)
   const eventKey = functionKey ? normalized.toUpperCase() : (domKey[normalized] || normalized)
   const eventCode = functionKey
     ? normalized.toUpperCase()
@@ -123,14 +147,15 @@ export function keyboardEventInit(key) {
   return init
 }
 
-// Player-2 retropad buttons map to dedicated F13–F24 virtual keys so they
-// never collide with P1 bindings even if the user remaps aggressively.
+// Player-2 retropad buttons map to dedicated numpad keys. RetroArch's web
+// input driver supports these DOM codes, and the synthetic keys never collide
+// with P1's browser-friendly defaults.
 export const P2_KEY_MAP = {
-  up: 'f13', down: 'f14', left: 'f15', right: 'f16',
-  a: 'f17', b: 'f18',
-  x: 'f19', y: 'f20',
-  l: 'f21', r: 'f22',
-  start: 'f23', select: 'f24',
+  up: 'keypad8', down: 'keypad2', left: 'keypad4', right: 'keypad6',
+  a: 'keypad1', b: 'keypad3',
+  x: 'keypad7', y: 'keypad9',
+  l: 'keypad0', r: 'keypad5',
+  start: 'multiply', select: 'divide',
 }
 
 // RetroArch config fragment for P2 using the F-key bindings above.

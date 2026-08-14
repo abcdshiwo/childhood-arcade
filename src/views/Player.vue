@@ -149,6 +149,7 @@ import {
   useInputMapping,
   P2_KEY_MAP,
   buildPlayer2RetroarchConfig,
+  keyboardEventInit,
   normalizeKeyboardKey,
 } from '../composables/useInputMapping.js'
 import { useAuth } from '../composables/useAuth.js'
@@ -619,12 +620,11 @@ async function hostInviteGuest(peerId) {
 
 // -- Host: convert guest-sent retropad button into the corresponding P2 F-key
 function dispatchP2Button(action, button) {
-  const fkey = P2_KEY_MAP[button]
-  if (!fkey) return
+  const mappedKey = P2_KEY_MAP[button]
+  if (!mappedKey) return
   const type = action === 'down' ? 'keydown' : 'keyup'
-  const key = fkey.toUpperCase()  // 'f13' → 'F13' matches DOM key spec for F-keys
   try {
-    const ev = new KeyboardEvent(type, { key, code: key, bubbles: true, cancelable: true })
+    const ev = new KeyboardEvent(type, keyboardEventInit(mappedKey))
     window.dispatchEvent(ev)
     document.dispatchEvent(ev)
   } catch {}

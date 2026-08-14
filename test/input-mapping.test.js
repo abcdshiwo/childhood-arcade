@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  P2_KEY_MAP,
+  buildPlayer2RetroarchConfig,
   keyboardEventInit,
   keyboardKeyLabel,
   normalizeKeyboardKey,
@@ -48,6 +50,34 @@ test('synthetic num1 events look like a physical top-row 1 key', () => {
     bubbles: true,
     cancelable: true,
     composed: true,
+  })
+})
+
+test('player 2 room controls use browser-supported isolated numpad keys', () => {
+  assert.deepEqual(P2_KEY_MAP, {
+    up: 'keypad8', down: 'keypad2', left: 'keypad4', right: 'keypad6',
+    a: 'keypad1', b: 'keypad3', x: 'keypad7', y: 'keypad9',
+    l: 'keypad0', r: 'keypad5', start: 'multiply', select: 'divide',
+  })
+  assert.equal(new Set(Object.values(P2_KEY_MAP)).size, Object.keys(P2_KEY_MAP).length)
+
+  const config = buildPlayer2RetroarchConfig()
+  for (const [button, key] of Object.entries(P2_KEY_MAP)) {
+    assert.equal(config[`input_player2_${button}`], key)
+    assert.match(keyboardEventInit(key).code, /^(Numpad[0-9]|NumpadMultiply|NumpadDivide)$/)
+  }
+})
+
+test('numpad operators round-trip between browser and RetroArch names', () => {
+  assert.equal(normalizeKeyboardKey('*', 'NumpadMultiply', 3), 'multiply')
+  assert.equal(normalizeKeyboardKey('/', 'NumpadDivide', 3), 'divide')
+  assert.deepEqual(keyboardEventInit('multiply'), {
+    key: '*', code: 'NumpadMultiply', location: 3,
+    bubbles: true, cancelable: true, composed: true,
+  })
+  assert.deepEqual(keyboardEventInit('divide'), {
+    key: '/', code: 'NumpadDivide', location: 3,
+    bubbles: true, cancelable: true, composed: true,
   })
 })
 
