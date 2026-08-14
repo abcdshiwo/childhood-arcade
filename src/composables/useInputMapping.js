@@ -23,12 +23,12 @@ export const BUTTON_DEFS = [
 ]
 
 const DEFAULT_KEYBOARD = {
-  up: 'up', down: 'down', left: 'left', right: 'right',
-  a: 'x', b: 'z',
-  x: 's', y: 'a',
-  l: 'q', r: 'w',
-  l2: '1', r2: '3',
-  start: 'enter', select: 'rshift',
+  up: 'w', down: 's', left: 'a', right: 'd',
+  a: 'k', b: 'j',
+  x: 'i', y: 'u',
+  l: 'q', r: 'e',
+  l2: 'z', r2: 'c',
+  start: 'enter', select: '1',
 }
 
 // Player-2 retropad buttons map to dedicated F13–F24 virtual keys so they

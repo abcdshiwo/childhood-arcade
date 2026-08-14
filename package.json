@@ -7,6 +7,7 @@
     "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --watch server/index.js",
     "dev:web": "vite",
+    "test": "node --test test/*.test.js",
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production node server/index.js"

@@ -210,7 +210,7 @@ const BUTTON_LABELS = {
   //   retropad x → game's D,  retropad y → game's C
   // Show labels that match what the game actually sees, so users binding keys
   // aren't surprised by "A" triggering B.
-  arcade:    { a: 'B', b: 'A', x: 'D', y: 'C', l: 'E', r: 'F' },
+  arcade:    { a: 'B', b: 'A', x: 'D', y: 'C', l: 'E', r: 'F', select: '投币', start: '开始' },
 
   // Sega Genesis / Mega Drive — genesis_plus_gx core maps retropad:
   //   b→A, a→B, y→C, x→Y, l→X, r→Z   (retropad_b is the "primary" action)

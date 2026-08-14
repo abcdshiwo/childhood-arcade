@@ -28,6 +28,9 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --omit=dev
 
+      - name: Run regression tests
+        run: npm test
+
       - name: Build frontend
         run: npm run build
 
