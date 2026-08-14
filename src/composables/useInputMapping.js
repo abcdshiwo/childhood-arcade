@@ -215,6 +215,7 @@ function saveMapping(userId, mapping) {
 
 const mapping = ref({ keyboard: { ...DEFAULT_KEYBOARD }, gamepad: { ...DEFAULT_GAMEPAD } })
 let loaded = false
+export const USER_MAPPING_WATCH_OPTIONS = Object.freeze({ flush: 'sync' })
 
 function refreshForUser(userId) {
   const stored = loadMapping(userId)
@@ -230,7 +231,10 @@ export function useInputMapping() {
   if (!loaded) {
     loaded = true
     refreshForUser(user.value?.id)
-    watch(() => user.value?.id, (id) => refreshForUser(id))
+    // Auth sets user.value before it clears loading. A synchronous watcher
+    // guarantees Player sees the authenticated user's saved mapping when it
+    // unlocks emulator mounting after /api/auth/me finishes.
+    watch(() => user.value?.id, (id) => refreshForUser(id), USER_MAPPING_WATCH_OPTIONS)
   }
 
   function setKeyboard(btn, key) {

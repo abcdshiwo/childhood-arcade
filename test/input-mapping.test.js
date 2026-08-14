@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ref, watch } from 'vue'
 
 import {
   P2_KEY_MAP,
+  USER_MAPPING_WATCH_OPTIONS,
   buildPlayer2KeyMap,
   buildPlayer2RetroarchConfig,
   keyboardEventInit,
@@ -42,6 +44,23 @@ test('old stored digit mappings migrate to RetroArch num names', () => {
     normalizeKeyboardMapping({ select: '1', start: 'enter', a: 'j' }),
     { select: 'num1', start: 'enter', a: 'j' },
   )
+})
+
+test('authenticated user mappings refresh synchronously before emulator boot', () => {
+  assert.deepEqual(USER_MAPPING_WATCH_OPTIONS, { flush: 'sync' })
+
+  const userId = ref(null)
+  const order = []
+  const stop = watch(
+    userId,
+    (id) => order.push(`mapping:${id}`),
+    USER_MAPPING_WATCH_OPTIONS,
+  )
+  userId.value = 7
+  order.push('auth-loading:false')
+  stop()
+
+  assert.deepEqual(order, ['mapping:7', 'auth-loading:false'])
 })
 
 test('synthetic num1 events look like a physical top-row 1 key', () => {
