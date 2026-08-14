@@ -5,6 +5,7 @@ dist
 *.log
 .DS_Store
 .vscode
+.worktrees/
 
 # Runtime user data lives in /data on the host volume — never commit it.
 # Exception: data/bios and data/cores ship with the repo so the Docker image
