@@ -78,3 +78,23 @@ jobs:
             --home-dir /var/lib/childhood-arcade-tunnel \
             --shell /usr/sbin/nologin childhood-arcade-tunnel
           systemd-analyze verify deploy/systemd/childhood-arcade-tunnel.service
+
+      - name: Validate Nginx site config
+        run: |
+          test_dir="$RUNNER_TEMP/nginx-test"
+          cert_dir="$test_dir/cert"
+          mkdir -p "$cert_dir"
+          openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+            -subj '/CN=arcade.abcds.de' \
+            -keyout "$cert_dir/privkey.pem" \
+            -out "$cert_dir/fullchain.pem" >/dev/null 2>&1
+          sed \
+            -e 's#/etc/letsencrypt/live/arcade.abcds.de/fullchain.pem#/work/cert/fullchain.pem#' \
+            -e 's#/etc/letsencrypt/live/arcade.abcds.de/privkey.pem#/work/cert/privkey.pem#' \
+            deploy/nginx/arcade.conf > "$test_dir/arcade.conf"
+          printf 'events {}\nhttp {\nmap $http_upgrade $connection_upgrade { default upgrade; "" close; }\ninclude %s;\n}\n' \
+            '/work/arcade.conf' > "$test_dir/nginx.conf"
+          docker run --rm \
+            -v "$test_dir:/work:ro" \
+            nginx:1.26.3-alpine@sha256:1eadbb07820339e8bbfed18c771691970baee292ec4ab2558f1453d26153e22d \
+            nginx -t -c /work/nginx.conf
