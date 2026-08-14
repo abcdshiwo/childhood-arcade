@@ -288,3 +288,13 @@ test('mobile toolbar does not hide the keyboard settings button', async () => {
     /\.bar-btn-keys\s*\{\s*display\s*:\s*none\s*;?\s*\}/,
   )
 })
+
+test('player waits for user-specific input mapping before mounting the emulator', async () => {
+  const source = await readFile(
+    new URL('../src/views/Player.vue', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(source, /rom && biosReady && !authLoading/)
+  assert.match(source, /watch\(authLoading,[\s\S]*buildPlayer2KeyMap\(mapping\.value\.keyboard\)/)
+})

@@ -45,7 +45,7 @@
              the waiting-guest view instead — starting the emulator for a
              future guest wastes cores + triggers an unmount race. -->
         <EmulatorPortal
-          v-if="rom && biosReady && (!isRoomMode || isHostMode)"
+          v-if="rom && biosReady && !authLoading && (!isRoomMode || isHostMode)"
           ref="portalRef"
           :core="platformInfo.core"
           :rom="rom"
@@ -166,7 +166,7 @@ const props = defineProps({ id: String })
 const router = useRouter()
 const route = useRoute()
 const { retroarchConfig: inputCfg, mapping } = useInputMapping()
-const { isAuthed } = useAuth()
+const { isAuthed, loading: authLoading } = useAuth()
 const player2KeyMap = shallowRef(buildPlayer2KeyMap(mapping.value.keyboard))
 
 // -- State --
@@ -304,6 +304,13 @@ watch([() => romMeta.value?.platform, signalMe], () => {
 })
 watch(() => signalMe.value?.isHost, (isHost, wasHost) => {
   if (isHost && !wasHost) {
+    player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
+  }
+}, { flush: 'sync' })
+watch(authLoading, (loading) => {
+  // A direct /play URL can mount Player before /api/auth/me resolves. Wait for
+  // useInputMapping's user-specific localStorage refresh before freezing P2.
+  if (!loading && !booted.value) {
     player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
   }
 }, { flush: 'sync' })
