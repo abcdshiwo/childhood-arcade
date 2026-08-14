@@ -24,11 +24,13 @@
 | 游戏截图短名 | 493 | 241 个游戏候选全部有同名截图 |
 | ROM 与截图精确匹配 | 241 / 241 | 转为 WebP 后用于图库 |
 | 只有截图、没有 ROM 的短名 | 252 | 仅记录在报告中，不伪造成可玩游戏 |
-| 标题覆盖 | 241 / 241 | 237 个来自参考 FBNeo DAT，4 个旧短名使用已核验别名；发布前仍需绑定线上核心的精确 DAT |
+| 标题覆盖 | 241 / 241 | 使用已锁定的线上 FBNeo 精确 DAT；旧短名仍需按成员 CRC 唯一映射 |
 
 ROM、INI 和截图的联合目录实际只有 597 个短名，其中包含 BIOS；cheats 目录单独有 601 个 DAT，这正是“600 多个”最容易产生的来源。没有独立 ZIP 的辅助短名不能当成独立游戏上传。
 
 因此本次交付目标是：物理上传并登记 241 个真实游戏候选，图库只公开通过当前线上 FBNeo 核心校验的集合。未通过的文件保留在服务器隔离区和批次报告中，不丢弃，也不显示成可以启动的游戏。
+
+线上核心已经完成可复现的来源绑定：`fbneo.js` SHA-256 为 `CD8E329CAA68E7125B1F70FF91129F97B2935745F5FBAA31BA4E3AB1BCCD4697`，`fbneo.wasm` SHA-256 为 `7AD627B58DE8832DBCEB9C9B92C18E5EE198B87EB3ADA95F4AC1AAA80755EF23`，运行时报告 FBNeo `v1.0.0.03 2f41022`。导入批次固定使用提交 `2f41022002337ed20186144bbddb2d53392fab85` 的 Arcade DAT；该 DAT SHA-256 为 `E7B55931F73F458737D85AFF0BE1C516083AC8E0EE7ECD76068C864A8ACBA1C5`。核心 JS、WASM 和 DAT 三个哈希必须同时写入 manifest，任一变化都要求重新审计。
 
 ## 方案选择
 
@@ -127,7 +129,7 @@ ROM、INI 和截图的联合目录实际只有 597 个短名，其中包含 BIOS
 ### 2. 元数据生成
 
 - set 名取 ZIP 文件名的小写 basename。
-- 标题优先使用与线上核心版本对齐的 FBNeo DAT；四个已核验旧短名使用显式别名表。
+- 标题、parent/clone、ROM 名称、大小和 CRC 使用提交 `2f41022` 的精确 FBNeo Arcade DAT；旧短名只有在成员 CRC 能唯一映射到目标 driver 时才采用显式别名。
 - 截图按不区分大小写的同名 basename 匹配；`Rotd` 的 BMP/PNG 双份采用 BMP 作为一致来源。
 - 241 张 BMP 离线转成 WebP q80；已测总大小约从 10.8MiB 降至 2.3MiB。
 - 每个 ROM 和缩略图计算 SHA-256，写入机器可读 `manifest.json` 和人类可读 `report.md`。
@@ -141,7 +143,7 @@ ROM、INI 和截图的联合目录实际只有 597 个短名，其中包含 BIOS
 
 WinKawaks 1.65 使用旧式 merged/decrypted ROM 集，ZIP 不自动等同于当前 FBNeo canonical set。静态对比已经发现 CPS2 缺现代 `.key`、部分图形 ROM CRC 不同，CPS1 缺部分现代 DAT PLD 条目，KOF97 和 Metal Slug 3/4/5 等同名 ZIP 还混装多个版本。导入器优先绑定线上 `fbneo.wasm` 与精确 DAT 哈希，按 DAT 审计成员；能安全重建的集合输出到 `normalized/`，无法安全重建的原始候选输出到 `quarantine/`。
 
-如果无法取得与线上 WASM 精确对应的 DAT，批次不能凭“参考 DAT 能识别”直接发布。替代发布门槛是对每个拟公开 set 都使用线上同一 core、BIOS 和浏览器运行时执行自动启动验证，确认核心进入有效画面且没有 missing ROM、CRC、BIOS 或 key 错误；未实际跑过的条目保持 `blocked`。
+即使已经取得精确 DAT，DAT 静态匹配仍不能代替运行期验证。每个拟公开 set 都必须使用线上同一 core、BIOS 和浏览器运行时执行自动启动冒烟，确认核心进入有效画面且没有 missing ROM、CRC、BIOS 或 key 错误；未实际跑过的条目保持 `blocked`。
 
 ### 4. 幂等写入
 
@@ -157,7 +159,9 @@ WinKawaks 1.65 使用旧式 merged/decrypted ROM 集，ZIP 不自动等同于当
 
 5GB 整包不通过 241 次 HTTP 上传，也不把原始 RAR 交给生产应用解包。本地先生成一个输出对应一个候选的批次：`ready` 使用规范化 ZIP，`blocked/unsupported/conflict` 保留原始 ZIP 放入隔离目录，因此 241 个候选都会到达服务器但不会重复传两份。
 
-批次通过一个持久 SFTP 会话使用 `reput` 续传到全新的 `shared/data/import-staging/<batch-id>/`，避免逐文件重复 SSH 握手。传输完成后，应用机逐文件核对 manifest SHA-256；staging 与最终目录必须在同一文件系统，以便 importer 使用原子 rename。整个过程不新增公网端口，也不改现有 Nginx 上传限制。
+当前链路的 SFTP subsystem 已实测出现认证成功后长时间无响应，不能作为唯一传输方案。批次先在本地打成可独立校验的 64MiB 或 128MiB 固定块，每块记录 SHA-256；使用 legacy SCP 协议经现有反代机 `43.159.2.240` 做 `ProxyJump`，直接写入应用机 `160.236.110.53`。失败块自动重试，远端已有且哈希一致的块直接跳过。所有块到齐后才在应用机顺序合并，核对完整批次 SHA-256，并原子移动到 `shared/data/import-staging/<batch-id>/`。代理机只转发 SSH 流量、不落 ROM 副本；整个过程一次断线最多重传一个块，不新增公网端口，也不改现有 Nginx 上传限制。
+
+8MiB 样本已完成三方哈希核验：本地直传应用机端到端仅约 `0.097MiB/s`，经反代机 `ProxyJump` 可达约 `3.068MiB/s`，快约 31.6 倍。按该实测速率估算，4.3–4.875GiB 约需 24–27 分钟，生产执行按 30–45 分钟预留；若运行时速率退化，块级续传仍可跨会话继续。
 
 生产流程：
 
