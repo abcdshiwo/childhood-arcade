@@ -61,3 +61,13 @@ jobs:
           if grep -R 'ConditionPathIsExecutable' deploy/systemd; then
             exit 1
           fi
+
+      - name: Validate restricted SSHD Match block
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openssh-server
+          sudo ssh-keygen -A
+          printf 'HostKey /etc/ssh/ssh_host_ed25519_key\nUsePAM no\nInclude %s\n' \
+            "$GITHUB_WORKSPACE/deploy/sshd/60-childhood-arcade-tunnel.conf" \
+            > "$RUNNER_TEMP/childhood-arcade-sshd_config"
+          sudo /usr/sbin/sshd -t -f "$RUNNER_TEMP/childhood-arcade-sshd_config"
