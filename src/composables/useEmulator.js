@@ -18,6 +18,28 @@ export function createPortalCanvas(documentRef = globalThis.document) {
   return canvas
 }
 
+// Nostalgist currently writes a full-screen fixed layout directly onto the
+// canvas, even when the caller supplies the element. Reset those inline
+// values so the player portal — and its toolbar above it — owns the layout.
+export function normalizePortalCanvas(canvas) {
+  Object.assign(canvas.style, {
+    display: 'block',
+    position: 'static',
+    inset: 'auto',
+    top: 'auto',
+    right: 'auto',
+    bottom: 'auto',
+    left: 'auto',
+    width: '100%',
+    height: '100%',
+    maxWidth: '100%',
+    maxHeight: '100%',
+    objectFit: 'contain',
+    zIndex: 'auto',
+  })
+  return canvas
+}
+
 export function useEmulator({
   documentRef = globalThis.document,
   navigatorRef = globalThis.navigator,
@@ -82,13 +104,17 @@ export function useEmulator({
       }
       instance.value = emu
 
-      emulatorCanvas = emu.getCanvas()
+      emulatorCanvas = normalizePortalCanvas(emu.getCanvas())
       currentCanvas = emulatorCanvas
       if (!emulatorCanvas.isConnected) wrapperRef.value.append(emulatorCanvas)
 
       try { navigatorRef.mediaDevices.getUserMedia = null } catch {}
       try { await emu.start() }
       finally { try { navigatorRef.mediaDevices.getUserMedia = originalGetUserMedia } catch {} }
+
+      // Keep the portal layout authoritative if a core/startup hook writes
+      // Nostalgist's defaults again while the emulator is starting.
+      normalizePortalCanvas(emulatorCanvas)
 
       // destroy() invalidates the epoch before releasing the old instance. If
       // navigation/unmount happened while start() was pending, the stale boot

@@ -13,6 +13,7 @@ function fakeCanvas() {
   let removeCalls = 0
 
   return {
+    style: {},
     classList: {
       add(...names) { names.forEach((name) => classes.add(name)) },
       contains(name) { return classes.has(name) },
@@ -91,6 +92,28 @@ test('createPortalCanvas creates the application-owned emulator canvas', () => {
   assert.equal(emulatorModule.createPortalCanvas(documentRef), canvas)
   assert.equal(canvas.getAttribute('tabindex'), '-1')
   assert.equal(canvas.classList.contains('portal-canvas'), true)
+})
+
+test('normalizePortalCanvas clears Nostalgist full-screen inline layout', () => {
+  assert.equal(typeof emulatorModule.normalizePortalCanvas, 'function')
+
+  const canvas = fakeCanvas()
+  Object.assign(canvas.style, {
+    position: 'fixed',
+    left: '0px',
+    top: '0px',
+    width: '100%',
+    height: '100%',
+    zIndex: '1',
+  })
+
+  assert.equal(emulatorModule.normalizePortalCanvas(canvas), canvas)
+  assert.equal(canvas.style.position, 'static')
+  assert.equal(canvas.style.left, 'auto')
+  assert.equal(canvas.style.top, 'auto')
+  assert.equal(canvas.style.width, '100%')
+  assert.equal(canvas.style.height, '100%')
+  assert.equal(canvas.style.zIndex, 'auto')
 })
 
 test('buildEmulatorOptions retains emulator configuration and supplied canvas', () => {
