@@ -52,3 +52,12 @@ jobs:
 
       - name: Check health script syntax
         run: sh -n deploy/bin/childhood-arcade-healthcheck.sh
+
+      - name: Check health unit executable condition
+        run: |
+          grep -Fqx \
+            'ConditionFileIsExecutable=/usr/local/libexec/childhood-arcade-healthcheck' \
+            deploy/systemd/childhood-arcade-healthcheck.service
+          if grep -R 'ConditionPathIsExecutable' deploy/systemd; then
+            exit 1
+          fi

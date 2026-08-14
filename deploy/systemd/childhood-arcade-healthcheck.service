@@ -1,7 +1,7 @@
 [Unit]
 Description=Health check for Childhood Arcade
 After=childhood-arcade.service
-ConditionPathIsExecutable=/usr/local/libexec/childhood-arcade-healthcheck
+ConditionFileIsExecutable=/usr/local/libexec/childhood-arcade-healthcheck
 
 [Service]
 Type=oneshot
