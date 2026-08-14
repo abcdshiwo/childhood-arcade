@@ -51,7 +51,8 @@ if (IS_PROD) {
 }
 
 const PORT = Number(process.env.PORT) || 3000
-const server = serve({ fetch: app.fetch, port: PORT, hostname: '0.0.0.0' }, (info) => {
-  console.log(`[api] listening on http://0.0.0.0:${info.port}`)
+const HOST = process.env.HOST || '0.0.0.0'
+const server = serve({ fetch: app.fetch, port: PORT, hostname: HOST }, (info) => {
+  console.log(`[api] listening on http://${HOST}:${info.port}`)
 })
 injectWebSocket(server)
