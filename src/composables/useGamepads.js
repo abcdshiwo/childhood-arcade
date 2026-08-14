@@ -1,5 +1,5 @@
 import { ref, onBeforeUnmount } from 'vue'
-import { useInputMapping } from './useInputMapping.js'
+import { keyboardEventInit, useInputMapping } from './useInputMapping.js'
 
 /**
  * Polls navigator.getGamepads() each animation frame and dispatches synthetic
@@ -52,19 +52,8 @@ export function useGamepads({ onButton } = {}) {
   }
 
   function dispatchKey(type, key) {
-    const SPECIAL = {
-      up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
-      enter: 'Enter', space: ' ', shift: 'Shift', rshift: 'Shift',
-    }
-    const CODE = {
-      up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
-      enter: 'Enter', space: 'Space', shift: 'ShiftLeft', rshift: 'ShiftRight',
-    }
-    const k = key.toLowerCase()
-    const keyStr = SPECIAL[k] || key
-    const codeStr = CODE[k] || (key.length === 1 ? 'Key' + key.toUpperCase() : key)
     try {
-      const ev = new KeyboardEvent(type, { key: keyStr, code: codeStr, bubbles: true, cancelable: true })
+      const ev = new KeyboardEvent(type, keyboardEventInit(key))
       window.dispatchEvent(ev)
     } catch {}
   }

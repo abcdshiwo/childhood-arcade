@@ -145,7 +145,12 @@ import { api } from '../api/client.js'
 import { getPlatformInfo, getBiosUrls } from '../data/config.js'
 import { cachedFetch } from '../composables/useBlobCache.js'
 import { coreDisplayName } from '../constants/cores.js'
-import { useInputMapping, P2_KEY_MAP, buildPlayer2RetroarchConfig } from '../composables/useInputMapping.js'
+import {
+  useInputMapping,
+  P2_KEY_MAP,
+  buildPlayer2RetroarchConfig,
+  normalizeKeyboardKey,
+} from '../composables/useInputMapping.js'
 import { useAuth } from '../composables/useAuth.js'
 import { useRoomSignal } from '../composables/useRoomSignal.js'
 import { useWebRTC } from '../composables/useWebRTC.js'
@@ -629,17 +634,7 @@ function dispatchP2Button(action, button) {
 function guestKeyHandler(e) {
   if (!rtc || !signalMe.value || signalMe.value.isHost) return
   if (!canGuestPlay.value) return
-  const raw = e.key
-  let k
-  if (raw === 'ArrowUp') k = 'up'
-  else if (raw === 'ArrowDown') k = 'down'
-  else if (raw === 'ArrowLeft') k = 'left'
-  else if (raw === 'ArrowRight') k = 'right'
-  else if (raw === 'Enter') k = 'enter'
-  else if (raw === 'Shift') k = e.location === 2 ? 'rshift' : 'shift'
-  else if (raw === ' ') k = 'space'
-  else k = (raw.length === 1 ? raw.toLowerCase() : raw.toLowerCase())
-
+  const k = normalizeKeyboardKey(e.key, e.code, e.location)
   const button = REVERSE_KEY_MAP.value[k]
   if (!button) return
   e.preventDefault()

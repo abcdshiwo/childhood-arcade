@@ -28,7 +28,99 @@ const DEFAULT_KEYBOARD = {
   x: 'i', y: 'u',
   l: 'q', r: 'e',
   l2: 'z', r2: 'c',
-  start: 'enter', select: '1',
+  start: 'enter', select: 'num1',
+}
+
+// RetroArch names the top-row number keys num0..num9. Browser KeyboardEvent
+// uses key="1" / code="Digit1", so keep the conversion in one place for
+// physical keys, saved mappings, room guests, gamepads and the virtual pad.
+export function normalizeKeyboardKey(rawKey, code = '', location = 0) {
+  const key = String(rawKey ?? '')
+  const eventCode = String(code ?? '')
+
+  const digitCode = eventCode.match(/^Digit([0-9])$/)
+  if (digitCode) return `num${digitCode[1]}`
+
+  const keypadCode = eventCode.match(/^Numpad([0-9])$/)
+  if (keypadCode) return `keypad${keypadCode[1]}`
+
+  if (key === ' ') return 'space'
+  if (key === 'ArrowUp') return 'up'
+  if (key === 'ArrowDown') return 'down'
+  if (key === 'ArrowLeft') return 'left'
+  if (key === 'ArrowRight') return 'right'
+  if (key === 'Enter') return 'enter'
+  if (key === 'Shift') return location === 2 ? 'rshift' : 'shift'
+
+  const normalized = key.toLowerCase()
+  if (/^[0-9]$/.test(normalized)) return `num${normalized}`
+  return normalized
+}
+
+export function normalizeKeyboardMapping(keyboard = {}) {
+  return Object.fromEntries(
+    Object.entries(keyboard).map(([button, key]) => [button, normalizeKeyboardKey(key)]),
+  )
+}
+
+export function keyboardKeyLabel(key) {
+  const normalized = normalizeKeyboardKey(key)
+  const digit = normalized.match(/^num([0-9])$/)
+  if (digit) return digit[1]
+  const keypad = normalized.match(/^keypad([0-9])$/)
+  if (keypad) return `小键盘 ${keypad[1]}`
+  return normalized
+}
+
+export function keyboardEventInit(key) {
+  const normalized = normalizeKeyboardKey(key)
+  const digit = normalized.match(/^num([0-9])$/)
+  if (digit) {
+    return {
+      key: digit[1],
+      code: `Digit${digit[1]}`,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }
+  }
+
+  const keypad = normalized.match(/^keypad([0-9])$/)
+  if (keypad) {
+    return {
+      key: keypad[1],
+      code: `Numpad${keypad[1]}`,
+      location: 3,
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    }
+  }
+
+  const domKey = {
+    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+    enter: 'Enter', space: ' ', shift: 'Shift', rshift: 'Shift',
+    escape: 'Escape',
+  }
+  const domCode = {
+    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+    enter: 'Enter', space: 'Space', shift: 'ShiftLeft', rshift: 'ShiftRight',
+    escape: 'Escape',
+  }
+  const functionKey = normalized.match(/^f([1-9]|1[0-9]|2[0-4])$/)
+  const eventKey = functionKey ? normalized.toUpperCase() : (domKey[normalized] || normalized)
+  const eventCode = functionKey
+    ? normalized.toUpperCase()
+    : (domCode[normalized] || (/^[a-z]$/.test(normalized) ? `Key${normalized.toUpperCase()}` : normalized))
+  const init = {
+    key: eventKey,
+    code: eventCode,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  }
+  if (normalized === 'rshift') init.location = 2
+  return init
 }
 
 // Player-2 retropad buttons map to dedicated F13–F24 virtual keys so they
@@ -77,7 +169,7 @@ let loaded = false
 function refreshForUser(userId) {
   const stored = loadMapping(userId)
   mapping.value = {
-    keyboard: { ...DEFAULT_KEYBOARD, ...(stored?.keyboard || {}) },
+    keyboard: normalizeKeyboardMapping({ ...DEFAULT_KEYBOARD, ...(stored?.keyboard || {}) }),
     gamepad:  { ...DEFAULT_GAMEPAD,  ...(stored?.gamepad  || {}) },
   }
 }
@@ -92,7 +184,10 @@ export function useInputMapping() {
   }
 
   function setKeyboard(btn, key) {
-    mapping.value = { ...mapping.value, keyboard: { ...mapping.value.keyboard, [btn]: key } }
+    mapping.value = {
+      ...mapping.value,
+      keyboard: { ...mapping.value.keyboard, [btn]: normalizeKeyboardKey(key) },
+    }
     saveMapping(user.value?.id, mapping.value)
   }
   function setGamepad(btn, idx) {

@@ -24,7 +24,7 @@
               :class="{ listening: listening === b.key }"
               @click="startListen(b.key)"
             >
-              {{ listening === b.key ? '按一个键…' : (mapping.keyboard[b.key] || '—') }}
+              {{ listening === b.key ? '按一个键…' : (keyboardKeyLabel(mapping.keyboard[b.key]) || '—') }}
             </button>
           </template>
 
@@ -55,7 +55,12 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { useInputMapping, BUTTON_DEFS } from '../composables/useInputMapping.js'
+import {
+  useInputMapping,
+  BUTTON_DEFS,
+  keyboardKeyLabel,
+  normalizeKeyboardKey,
+} from '../composables/useInputMapping.js'
 import { getPlatform } from '../constants/platforms.js'
 
 const props = defineProps({ platform: { type: String, default: null } })
@@ -94,17 +99,7 @@ function startGpListen(btn) { gpListening.value = btn; listening.value = null }
 function onKey(e) {
   if (!listening.value) return
   e.preventDefault()
-  let k = e.key
-  if (k === ' ') k = 'space'
-  else if (k === 'ArrowUp') k = 'up'
-  else if (k === 'ArrowDown') k = 'down'
-  else if (k === 'ArrowLeft') k = 'left'
-  else if (k === 'ArrowRight') k = 'right'
-  else if (k === 'Enter') k = 'enter'
-  else if (k === 'Shift') k = e.location === 2 ? 'rshift' : 'shift'
-  else if (k.length === 1) k = k.toLowerCase()
-  else k = k.toLowerCase()
-  setKeyboard(listening.value, k)
+  setKeyboard(listening.value, normalizeKeyboardKey(e.key, e.code, e.location))
   listening.value = null
 }
 

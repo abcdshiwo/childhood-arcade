@@ -85,7 +85,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, reactive, watch } from 'vue'
 import { getPlatform } from '../../constants/platforms.js'
-import { useInputMapping } from '../../composables/useInputMapping.js'
+import { keyboardEventInit, useInputMapping } from '../../composables/useInputMapping.js'
 
 const props = defineProps({
   platform: { type: String, default: null },
@@ -198,31 +198,9 @@ function resolveKey(btn) {
   return mapping.value.keyboard[btn] || null
 }
 
-function eventInit(key) {
-  const DOM_KEY = {
-    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
-    enter: 'Enter', space: ' ', shift: 'Shift', rshift: 'Shift',
-    escape: 'Escape',
-  }
-  const CODE_KEY = {
-    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
-    enter: 'Enter', space: 'Space',
-    shift: 'ShiftLeft', rshift: 'ShiftRight',
-    escape: 'Escape',
-  }
-  const k = key.toLowerCase()
-  return {
-    key: DOM_KEY[k] || key,
-    code: CODE_KEY[k] || (key.length === 1 ? 'Key' + key.toUpperCase() : key),
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-  }
-}
-
 function dispatch(type, key) {
   try {
-    const ev = new KeyboardEvent(type, eventInit(key))
+    const ev = new KeyboardEvent(type, keyboardEventInit(key))
     window.dispatchEvent(ev)
     document.dispatchEvent(ev)
   } catch {}
