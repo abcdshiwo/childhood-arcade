@@ -1,0 +1,29 @@
+[Unit]
+Description=Health check for Childhood Arcade
+After=childhood-arcade.service
+ConditionPathIsExecutable=/usr/local/libexec/childhood-arcade-healthcheck
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/childhood-arcade-healthcheck
+
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native

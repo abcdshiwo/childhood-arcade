@@ -1,0 +1,65 @@
+[Unit]
+Description=Persistent SSH tunnel for Childhood Arcade
+Documentation=man:ssh(1)
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=childhood-arcade-tunnel
+Group=childhood-arcade-tunnel
+Environment=HOME=/var/lib/childhood-arcade-tunnel
+ExecStart=/usr/bin/ssh \
+  -F /dev/null \
+  -N \
+  -T \
+  -o BatchMode=yes \
+  -o ConnectTimeout=10 \
+  -o ExitOnForwardFailure=yes \
+  -o GlobalKnownHostsFile=/dev/null \
+  -o IdentitiesOnly=yes \
+  -o KbdInteractiveAuthentication=no \
+  -o PasswordAuthentication=no \
+  -o PreferredAuthentications=publickey \
+  -o ServerAliveCountMax=3 \
+  -o ServerAliveInterval=30 \
+  -o StrictHostKeyChecking=yes \
+  -o TCPKeepAlive=yes \
+  -o UpdateHostKeys=no \
+  -o UserKnownHostsFile=/var/lib/childhood-arcade-tunnel/.ssh/known_hosts \
+  -i /var/lib/childhood-arcade-tunnel/.ssh/id_ed25519 \
+  -L 127.0.0.1:19097:127.0.0.1:19097 \
+  -p 59222 \
+  childhood-arcade-tunnel@160.236.110.53
+Restart=always
+RestartSec=10s
+TimeoutStopSec=15s
+KillSignal=SIGTERM
+UMask=0077
+
+MemoryMax=128M
+TasksMax=32
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+CapabilityBoundingSet=
+AmbientCapabilities=
+LockPersonality=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

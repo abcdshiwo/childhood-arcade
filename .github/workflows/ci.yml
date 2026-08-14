@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check server syntax
+        run: node --check server/index.js
+
+      - name: Smoke-test better-sqlite3
+        run: |
+          node --input-type=module <<'NODE'
+          import Database from 'better-sqlite3'
+
+          const database = new Database(':memory:')
+          database.exec('CREATE TABLE smoke (value TEXT NOT NULL)')
+          database.prepare('INSERT INTO smoke (value) VALUES (?)').run('ok')
+          const row = database.prepare('SELECT value FROM smoke').get()
+          database.close()
+
+          if (row?.value !== 'ok') {
+            throw new Error('better-sqlite3 in-memory smoke test failed')
+          }
+          NODE
+
+      - name: Check health script syntax
+        run: sh -n deploy/bin/childhood-arcade-healthcheck.sh
