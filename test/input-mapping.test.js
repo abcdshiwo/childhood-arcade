@@ -3,6 +3,7 @@ import test from 'node:test'
 
 import {
   P2_KEY_MAP,
+  buildPlayer2KeyMap,
   buildPlayer2RetroarchConfig,
   keyboardEventInit,
   keyboardKeyLabel,
@@ -79,6 +80,32 @@ test('numpad operators round-trip between browser and RetroArch names', () => {
     key: '/', code: 'NumpadDivide', location: 3,
     bubbles: true, cancelable: true, composed: true,
   })
+})
+
+test('player 2 room controls avoid every customized player 1 key', () => {
+  const player1Keyboard = {
+    up: 'keypad8', down: 'keypad2', left: 'keypad4', right: 'keypad6',
+    a: 'keypad1', b: 'keypad3', x: 'keypad7', y: 'keypad9',
+    l: 'keypad0', r: 'keypad5', start: 'multiply', select: 'divide',
+    l2: 'add', r2: 'subtract',
+  }
+  const player2Map = buildPlayer2KeyMap(player1Keyboard)
+  const player1Keys = new Set(Object.values(player1Keyboard))
+
+  assert.equal(Object.keys(player2Map).length, 12)
+  assert.equal(new Set(Object.values(player2Map)).size, 12)
+  for (const key of Object.values(player2Map)) {
+    assert.equal(player1Keys.has(key), false)
+    assert.match(
+      keyboardEventInit(key).code,
+      /^(Numpad[0-9]|NumpadMultiply|NumpadDivide|NumpadAdd|NumpadSubtract|Digit[0-9]|F1[3-5])$/,
+    )
+  }
+
+  const config = buildPlayer2RetroarchConfig(player2Map)
+  for (const [button, key] of Object.entries(player2Map)) {
+    assert.equal(config[`input_player2_${button}`], key)
+  }
 })
 
 test('default keyboard controls do not reuse physical keys', () => {

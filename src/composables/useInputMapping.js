@@ -147,21 +147,46 @@ export function keyboardEventInit(key) {
   return init
 }
 
-// Player-2 retropad buttons map to dedicated numpad keys. RetroArch's web
-// input driver supports these DOM codes, and the synthetic keys never collide
-// with P1's browser-friendly defaults.
-export const P2_KEY_MAP = {
-  up: 'keypad8', down: 'keypad2', left: 'keypad4', right: 'keypad6',
-  a: 'keypad1', b: 'keypad3',
-  x: 'keypad7', y: 'keypad9',
-  l: 'keypad0', r: 'keypad5',
-  start: 'multiply', select: 'divide',
+const P2_BUTTONS = [
+  'up', 'down', 'left', 'right',
+  'a', 'b', 'x', 'y',
+  'l', 'r', 'start', 'select',
+]
+
+// All entries are understood by both RetroArch's config parser and its web
+// input driver. There are 27 candidates, so even 14 fully customized P1
+// buttons cannot exhaust the pool needed for P2's 12 buttons.
+export const P2_KEY_POOL = [
+  'keypad8', 'keypad2', 'keypad4', 'keypad6',
+  'keypad1', 'keypad3', 'keypad7', 'keypad9',
+  'keypad0', 'keypad5', 'multiply', 'divide',
+  'add', 'subtract',
+  'num0', 'num1', 'num2', 'num3', 'num4',
+  'num5', 'num6', 'num7', 'num8', 'num9',
+  'f13', 'f14', 'f15',
+]
+
+export function buildPlayer2KeyMap(player1Keyboard = {}) {
+  const reserved = new Set(
+    BUTTON_DEFS
+      .map(({ key }) => normalizeKeyboardKey(player1Keyboard[key]))
+      .filter(Boolean),
+  )
+  const available = P2_KEY_POOL.filter((key) => !reserved.has(key))
+  if (available.length < P2_BUTTONS.length) {
+    throw new Error('No collision-free keyboard mapping is available for player 2')
+  }
+  return Object.fromEntries(P2_BUTTONS.map((button, index) => [button, available[index]]))
 }
 
-// RetroArch config fragment for P2 using the F-key bindings above.
-export function buildPlayer2RetroarchConfig() {
+// Default export retained for tests and non-custom callers. Player.vue builds
+// a room-specific map from the host's current P1 keyboard settings.
+export const P2_KEY_MAP = buildPlayer2KeyMap(DEFAULT_KEYBOARD)
+
+// RetroArch config fragment for P2 using an already collision-free key map.
+export function buildPlayer2RetroarchConfig(keyMap = P2_KEY_MAP) {
   const cfg = {}
-  for (const [btn, key] of Object.entries(P2_KEY_MAP)) {
+  for (const [btn, key] of Object.entries(keyMap)) {
     cfg[`input_player2_${btn}`] = key
   }
   return cfg

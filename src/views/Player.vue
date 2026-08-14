@@ -147,7 +147,7 @@ import { cachedFetch } from '../composables/useBlobCache.js'
 import { coreDisplayName } from '../constants/cores.js'
 import {
   useInputMapping,
-  P2_KEY_MAP,
+  buildPlayer2KeyMap,
   buildPlayer2RetroarchConfig,
   keyboardEventInit,
   normalizeKeyboardKey,
@@ -167,6 +167,7 @@ const router = useRouter()
 const route = useRoute()
 const { retroarchConfig: inputCfg, mapping } = useInputMapping()
 const { isAuthed } = useAuth()
+const player2KeyMap = shallowRef(buildPlayer2KeyMap(mapping.value.keyboard))
 
 // -- State --
 const portalRef = ref(null)
@@ -301,11 +302,16 @@ watch([() => romMeta.value?.platform, signalMe], () => {
   if (isRoomMode && !signalMe.value) return
   resolveBios()
 })
+watch(() => signalMe.value?.isHost, (isHost, wasHost) => {
+  if (isHost && !wasHost) {
+    player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
+  }
+}, { flush: 'sync' })
 // Merge P2 bindings when hosting netplay so guest input maps cleanly.
 const retroarchConfig = computed(() => {
   const base = inputCfg.value || {}
   if (isRoomMode && signalMe.value?.isHost) {
-    return { ...base, ...buildPlayer2RetroarchConfig() }
+    return { ...base, ...buildPlayer2RetroarchConfig(player2KeyMap.value) }
   }
   return base
 })
@@ -514,7 +520,7 @@ function setupRoom() {
       })
     },
     onDataMessage: (data) => {
-      // Host: re-dispatch guest button as the P2 F-key (if allowed)
+      // Host: re-dispatch guest button as the collision-free P2 key (if allowed)
       if (isHostMode.value && data?.type === 'input' && data.button) {
         if (!canGuestPlay.value) return
         dispatchP2Button(data.action, data.button)
@@ -618,9 +624,9 @@ async function hostInviteGuest(peerId) {
   rtc.startCall(peerId, stream)
 }
 
-// -- Host: convert guest-sent retropad button into the corresponding P2 F-key
+// -- Host: convert guest-sent retropad button into the corresponding P2 key
 function dispatchP2Button(action, button) {
-  const mappedKey = P2_KEY_MAP[button]
+  const mappedKey = player2KeyMap.value[button]
   if (!mappedKey) return
   const type = action === 'down' ? 'keydown' : 'keyup'
   try {
@@ -658,6 +664,7 @@ useGamepads({ onButton: guestButtonInterceptor })
 // from the top-bar switcher — same component, same view, new rom id).
 watch(() => props.id, (now, prev) => {
   if (!prev || now === prev) return
+  player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
   romMeta.value = null
   parentForChild.value = null
   siblings.value = []
