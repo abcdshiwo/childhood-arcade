@@ -71,3 +71,10 @@ jobs:
             "$GITHUB_WORKSPACE/deploy/sshd/60-childhood-arcade-tunnel.conf" \
             > "$RUNNER_TEMP/childhood-arcade-sshd_config"
           sudo /usr/sbin/sshd -t -f "$RUNNER_TEMP/childhood-arcade-sshd_config"
+
+      - name: Validate tunnel systemd unit
+        run: |
+          sudo useradd --system --user-group \
+            --home-dir /var/lib/childhood-arcade-tunnel \
+            --shell /usr/sbin/nologin childhood-arcade-tunnel
+          systemd-analyze verify deploy/systemd/childhood-arcade-tunnel.service

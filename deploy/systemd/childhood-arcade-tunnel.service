@@ -1,6 +1,6 @@
 [Unit]
 Description=Persistent SSH tunnel for Childhood Arcade
-Documentation=man:ssh(1)
+Documentation=https://man.openbsd.org/ssh.1
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=0
