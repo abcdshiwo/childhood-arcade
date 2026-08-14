@@ -82,23 +82,32 @@ npm prune --omit=dev
 
 Do not reuse the MCSManager-bundled Node.js runtime or its dependencies.
 
-## ROM and BIOS boundary
+## Bundled data policy
 
-The upstream repository contains BIOS files under `data/bios/`. They must not be
-included in the production release, copied to the shared data directory, or
-added to this fork. ROMs, proprietary BIOS images, saves, and an existing SQLite
-database must also be excluded from release archives. Deploy only source code
-and the reviewed emulator cores; users must provide ROM/BIOS content for which
-they have the legal right to use.
-
-A release copy should explicitly exclude at least:
+This private experimental deployment may include repository-tracked BIOS, ROM,
+save, and database files. Keep runtime data in the persistent shared directory
+rather than writing into an immutable release:
 
 ```text
-data/bios/**
-data/uploads/**
-data/saves/**
-data/app.db*
+/srv/childhood-arcade/shared/data/bios
+/srv/childhood-arcade/shared/data/uploads
+/srv/childhood-arcade/shared/data/saves
+/srv/childhood-arcade/shared/data/app.db
 ```
+
+BIOS and ROM files may be copied directly when the destination is empty. Seed
+uploads and saves without replacing newer runtime files. Treat a SQLite database
+as a restore operation: either install it before first boot, or stop the
+application and back up the active `app.db`, `app.db-wal`, and `app.db-shm`
+before replacement. Never overwrite a live database merely because a newer
+release archive happens to contain one.
+
+The `roms.file_path` and `save_states.file_path` columns store absolute paths.
+Before restoring a database from another machine, inspect those values and
+either preserve the original directory layout or migrate them to the matching
+paths under `/srv/childhood-arcade/shared/data/uploads` and
+`/srv/childhood-arcade/shared/data/saves`. Verify the referenced files exist
+before starting the application with the restored database.
 
 ## Restricted SSH tunnel
 
