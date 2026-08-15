@@ -874,6 +874,70 @@ test('Task 1 CLI exposes status/expand and fails closed for later phases', (t) =
   }
 })
 
+test('status refuses a missing database without creating its parent directory', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'arcade-status-missing-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const missingParent = join(directory, 'does-not-exist', 'nested')
+  const missingDatabase = join(missingParent, 'app.db')
+
+  const result = spawnSync(process.execPath, ['scripts/migrate-library.js', 'status'], {
+    cwd: PROJECT_ROOT,
+    env: { ...process.env, DB_PATH: missingDatabase },
+    encoding: 'utf8',
+    timeout: 10_000,
+    windowsHide: true,
+  })
+
+  assert.notEqual(result.status, 0)
+  assert.match(`${result.stdout}\n${result.stderr}`, /database|exist|open/i)
+  assert.equal(existsSync(missingParent), false)
+  assert.equal(existsSync(missingDatabase), false)
+})
+
+test('status classifies exact, legacy line-ending, and invalid hashes without writes', (t) => {
+  const { sqlite, path } = openDatabase(t)
+  const [baseline] = migrationEntries()
+  applyMigrationEntries(sqlite, [baseline])
+  const runStatus = () =>
+    spawnSync(process.execPath, ['scripts/migrate-library.js', 'status'], {
+      cwd: PROJECT_ROOT,
+      env: { ...process.env, DB_PATH: path },
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+    })
+  const readStatus = () => {
+    const before = readFileSync(path)
+    const result = runStatus()
+    const after = readFileSync(path)
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(after, before, 'status must not mutate database bytes')
+    return JSON.parse(result.stdout)
+  }
+
+  const exact = readStatus()
+  assert.equal(exact.ledger[0].hashStatus, 'exact')
+  assert.equal('hashMatches' in exact.ledger[0], false)
+
+  const baselineSql = readFileSync(
+    join(MIGRATIONS_FOLDER, '0000_baseline.sql'),
+    'utf8',
+  )
+  const crlfHash = createHash('sha256')
+    .update(baselineSql.replace(/\r?\n/g, '\r\n'), 'utf8')
+    .digest('hex')
+  assert.notEqual(crlfHash, baseline.hash)
+  sqlite
+    .prepare('UPDATE __drizzle_migrations SET hash = ? WHERE created_at = ?')
+    .run(crlfHash, baseline.folderMillis)
+  assert.equal(readStatus().ledger[0].hashStatus, 'legacy_line_endings')
+
+  sqlite
+    .prepare('UPDATE __drizzle_migrations SET hash = ? WHERE created_at = ?')
+    .run('7'.repeat(64), baseline.folderMillis)
+  assert.equal(readStatus().ledger[0].hashStatus, 'invalid')
+})
+
 test('expand SQL is LF-pinned and contains no destructive legacy-table operation', () => {
   const attributes = readFileSync(join(PROJECT_ROOT, '.gitattributes'), 'utf8')
   assert.match(attributes, /^server\/db\/migrations\/\*\.sql text eol=lf$/m)

@@ -119,6 +119,18 @@ export function readMigrationLedger(sqlite) {
     .all()
 }
 
+export function classifyMigrationHash(entry, actualHash) {
+  if (!entry || typeof actualHash !== 'string') return 'invalid'
+  if (actualHash === entry.hash) return 'exact'
+  if (
+    entry.tag === BASELINE_MIGRATION_TAG &&
+    entry.allowedLegacyHashes?.includes(actualHash)
+  ) {
+    return 'legacy_line_endings'
+  }
+  return 'invalid'
+}
+
 function quotedPragmaArgument(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
@@ -341,18 +353,19 @@ export function assertExactLedgerEntry(
   }
 
   const row = matches[0]
-  if (row.hash !== entry.hash) {
-    if (entry.tag === BASELINE_MIGRATION_TAG && allowLegacyBaselineHashMismatch) {
-      if (!entry.allowedLegacyHashes?.includes(row.hash)) {
-        throw new Error(
-          `legacy baseline hash mismatch at timestamp ${entry.folderMillis}: got an unknown hash ${row.hash}`,
-        )
-      }
+  const hashStatus = classifyMigrationHash(entry, row.hash)
+  if (hashStatus !== 'exact') {
+    if (hashStatus === 'legacy_line_endings' && allowLegacyBaselineHashMismatch) {
       assertBaselineShape(sqlite, entry.baselineSnapshot)
       onWarning(
         `[db] legacy baseline hash differs from the current LF-pinned SQL; verified the actual baseline shape instead`,
       )
       return { exact: false, legacyBaseline: true, row }
+    }
+    if (entry.tag === BASELINE_MIGRATION_TAG && hashStatus === 'invalid') {
+      throw new Error(
+        `legacy baseline hash mismatch at timestamp ${entry.folderMillis}: got an unknown hash ${row.hash}`,
+      )
     }
     throw new Error(
       `migration ${entry.tag} hash mismatch at timestamp ${entry.folderMillis}: expected ${entry.hash}, got ${row.hash}`,

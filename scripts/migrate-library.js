@@ -8,6 +8,7 @@ import Database from 'better-sqlite3'
 
 import {
   DEFAULT_MIGRATIONS_FOLDER,
+  classifyMigrationHash,
   expandLibraryDatabase,
   loadMigrationManifest,
   readLibraryMigrationState,
@@ -45,7 +46,7 @@ function statusPayload(sqlite, migrationsFolder) {
         tag: entry?.tag ?? null,
         createdAt: Number(row.createdAt),
         hash: row.hash,
-        hashMatches: entry ? row.hash === entry.hash : false,
+        hashStatus: classifyMigrationHash(entry, row.hash),
       }
     }),
   }
@@ -62,11 +63,16 @@ export function runLibraryMigrationCommand({
   if (mode === 'backfill' || mode === 'contract' || mode === 'all') unavailable(mode)
 
   const absoluteDbPath = resolve(dbPath)
-  mkdirSync(dirname(absoluteDbPath), { recursive: true })
-  const sqlite = new Database(absoluteDbPath)
+  if (mode === 'expand') mkdirSync(dirname(absoluteDbPath), { recursive: true })
+  const sqlite =
+    mode === 'status'
+      ? new Database(absoluteDbPath, { readonly: true, fileMustExist: true })
+      : new Database(absoluteDbPath)
   try {
-    sqlite.pragma('foreign_keys = ON')
-    if (mode === 'expand') expandLibraryDatabase(sqlite, { migrationsFolder })
+    if (mode === 'expand') {
+      sqlite.pragma('foreign_keys = ON')
+      expandLibraryDatabase(sqlite, { migrationsFolder })
+    }
     return statusPayload(sqlite, migrationsFolder)
   } finally {
     sqlite.close()
