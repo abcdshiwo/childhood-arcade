@@ -586,6 +586,80 @@ test('manifest validation requires explicit row coverage, exact arcade dependenc
   )
 })
 
+test('manifest validation rejects a ROM core that disagrees with its explicit platform contract', (t) => {
+  const fixture = makeFixture(t)
+  const manifest = structuredClone(fixture.manifest)
+  const nestopiaContract = structuredClone(manifest.cores[0])
+  nestopiaContract.id = 'nestopia-test'
+  manifest.cores.push(nestopiaContract)
+  manifest.platformCoreContracts.nes = 'nestopia-test'
+  const legacyFields = manifest.roms[0].expectedLegacyRow.fields
+  legacyFields.platform = 'nes'
+  manifest.roms[0].expectedLegacyRow.sha256 = canonicalHash(legacyFields)
+
+  assert.throws(
+    () => validateLegacyLibraryManifest(manifest, { manifestPath: fixture.manifestPath }),
+    /ROM 1.*platform nes.*nestopia-test.*fbneo-test|platform.*core.*mismatch/i,
+  )
+})
+
+test('manifest validation requires an explicit platform core mapping for every ROM', (t) => {
+  const fixture = makeFixture(t)
+  const manifest = structuredClone(fixture.manifest)
+  delete manifest.platformCoreContracts
+
+  assert.throws(
+    () => validateLegacyLibraryManifest(manifest, { manifestPath: fixture.manifestPath }),
+    /platformCoreContracts|platform arcade.*mapping|required.*platform/i,
+  )
+})
+
+test('an explicitly mapped arcade core requires arcade dependencies even without arcade ROMs', (t) => {
+  const fixture = makeFixture(t)
+  const manifest = structuredClone(fixture.manifest)
+  const nestopiaContract = structuredClone(manifest.cores[0])
+  nestopiaContract.id = 'nestopia-test'
+  nestopiaContract.coreName = 'nestopia'
+  nestopiaContract.displayVersion = 'nestopia test'
+  nestopiaContract.expectedArtifactFingerprint = canonicalHash(
+    coreIdentity({
+      coreName: nestopiaContract.coreName,
+      displayVersion: nestopiaContract.displayVersion,
+      sourceCommit: nestopiaContract.sourceCommit,
+      jsSha256: nestopiaContract.artifacts.js.expectedSha256,
+      wasmSha256: nestopiaContract.artifacts.wasm.expectedSha256,
+      datSha256: nestopiaContract.artifacts.dat.expectedSha256,
+      biosManifestSha256: nestopiaContract.expectedBiosManifestSha256,
+    }),
+  )
+  manifest.cores.push(nestopiaContract)
+  manifest.platformCoreContracts.nes = nestopiaContract.id
+  for (const record of manifest.roms) {
+    record.expectedLegacyRow.fields.platform = 'nes'
+    record.expectedLegacyRow.sha256 = canonicalHash(record.expectedLegacyRow.fields)
+    record.coreContractId = nestopiaContract.id
+  }
+
+  const arcadeContract = manifest.cores[0]
+  arcadeContract.artifacts.dat = null
+  arcadeContract.expectedArtifactFingerprint = canonicalHash(
+    coreIdentity({
+      coreName: arcadeContract.coreName,
+      displayVersion: arcadeContract.displayVersion,
+      sourceCommit: arcadeContract.sourceCommit,
+      jsSha256: arcadeContract.artifacts.js.expectedSha256,
+      wasmSha256: arcadeContract.artifacts.wasm.expectedSha256,
+      datSha256: null,
+      biosManifestSha256: arcadeContract.expectedBiosManifestSha256,
+    }),
+  )
+
+  assert.throws(
+    () => validateLegacyLibraryManifest(manifest, { manifestPath: fixture.manifestPath }),
+    /arcade core fbneo-test.*DAT|arcade.*DAT.*required/i,
+  )
+})
+
 test('core fingerprint is immutable and covers every runtime dependency', () => {
   const identity = coreIdentity({
     coreName: 'fbneo',
@@ -1109,6 +1183,82 @@ test('backfilled no-op revalidates core provenance, archive assets, and thumbnai
   }
 })
 
+test('backfilled no-op canonicalizes operator provenance and rejects drift', (t) => {
+  const fixture = makeFixture(t)
+  fixture.manifest.cores[0].provenance = { z: 'last', a: 'first' }
+  fixture.rewriteManifest()
+  backfillLegacyLibrary({
+    sqlite: fixture.sqlite,
+    manifestPath: fixture.manifestPath,
+    assetRoot: fixture.assetRoot,
+    apply: true,
+  })
+  const core = fixture.sqlite
+    .prepare('SELECT id, provenance_json FROM core_artifacts')
+    .get()
+  const provenance = JSON.parse(core.provenance_json)
+  provenance.operatorProvenance = { z: 'last', a: 'first' }
+  fixture.sqlite
+    .prepare('UPDATE core_artifacts SET provenance_json = ? WHERE id = ?')
+    .run(JSON.stringify(provenance), core.id)
+
+  assert.doesNotThrow(() =>
+    backfillLegacyLibrary({
+      sqlite: fixture.sqlite,
+      manifestPath: fixture.manifestPath,
+      assetRoot: fixture.assetRoot,
+      apply: false,
+    }),
+  )
+
+  provenance.operatorProvenance = { z: 'drifted', a: 'first' }
+  fixture.sqlite
+    .prepare('UPDATE core_artifacts SET provenance_json = ? WHERE id = ?')
+    .run(JSON.stringify(provenance), core.id)
+
+  assert.throws(
+    () =>
+      backfillLegacyLibrary({
+        sqlite: fixture.sqlite,
+        manifestPath: fixture.manifestPath,
+        assetRoot: fixture.assetRoot,
+        apply: false,
+      }),
+    /core artifact.*operatorProvenance|operator provenance.*conflict/i,
+  )
+})
+
+test('backfilled no-op rejects a missing operator provenance field', (t) => {
+  const fixture = makeFixture(t)
+  delete fixture.manifest.cores[0].provenance
+  fixture.rewriteManifest()
+  backfillLegacyLibrary({
+    sqlite: fixture.sqlite,
+    manifestPath: fixture.manifestPath,
+    assetRoot: fixture.assetRoot,
+    apply: true,
+  })
+  const core = fixture.sqlite
+    .prepare('SELECT id, provenance_json FROM core_artifacts')
+    .get()
+  const provenance = JSON.parse(core.provenance_json)
+  delete provenance.operatorProvenance
+  fixture.sqlite
+    .prepare('UPDATE core_artifacts SET provenance_json = ? WHERE id = ?')
+    .run(JSON.stringify(provenance), core.id)
+
+  assert.throws(
+    () =>
+      backfillLegacyLibrary({
+        sqlite: fixture.sqlite,
+        manifestPath: fixture.manifestPath,
+        assetRoot: fixture.assetRoot,
+        apply: false,
+      }),
+    /core artifact.*operatorProvenance|operator provenance.*missing/i,
+  )
+})
+
 test('shared content is deduplicated and service-level BIOS member references count', (t) => {
   const fixture = makeFixture(t, { sameArchiveBytes: true })
   backfillLegacyLibrary({
@@ -1316,6 +1466,9 @@ test('missing, mismatched, cyclic, and cross-core runtime parents fail before wr
       }),
     )
     fixture.manifest.cores.push(secondCore)
+    fixture.sqlite.prepare("UPDATE roms SET platform = 'mame' WHERE id = 7").run()
+    fixture.manifest.roms[1].expectedLegacyRow = expectedLegacyRow(fixture.sqlite, 7)
+    fixture.manifest.platformCoreContracts.mame = secondCore.id
     fixture.manifest.roms[1].coreContractId = secondCore.id
     fixture.rewriteManifest()
     assert.throws(

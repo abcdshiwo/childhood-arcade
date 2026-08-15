@@ -422,24 +422,58 @@ export function validateLegacyLibraryManifest(
     if (coreIds.has(core.id)) throw new Error(`duplicate core contract id ${core.id}`)
     coreIds.add(core.id)
   }
-  const arcadeCoreIds = new Set(
-    manifest.roms
-      .filter((record) => record.expectedLegacyRow?.fields?.platform === 'arcade')
-      .map((record) => record.coreContractId),
-  )
-  const coreContracts = new Map()
-  for (const core of manifest.cores) {
-    coreContracts.set(
-      core.id,
-      validateCoreContract(core, { arcadeRequired: arcadeCoreIds.has(core.id) }),
-    )
+  if (
+    !manifest.platformCoreContracts ||
+    typeof manifest.platformCoreContracts !== 'object' ||
+    Array.isArray(manifest.platformCoreContracts)
+  ) {
+    throw new TypeError('manifest requires explicit platformCoreContracts')
   }
+  const platformCoreContracts = new Map()
+  for (const [platformValue, coreIdValue] of Object.entries(
+    manifest.platformCoreContracts,
+  )) {
+    const platform = requiredString(platformValue, 'platformCoreContracts platform')
+    const coreId = requiredString(
+      coreIdValue,
+      `platformCoreContracts.${platform}`,
+    )
+    if (!coreIds.has(coreId)) {
+      throw new Error(`platform ${platform} references unknown core ${coreId}`)
+    }
+    platformCoreContracts.set(platform, coreId)
+  }
+  const arcadeCoreIds = new Set(
+    platformCoreContracts.has('arcade')
+      ? [platformCoreContracts.get('arcade')]
+      : [],
+  )
 
   const romIds = new Set()
   for (const record of manifest.roms) {
     if (romIds.has(record.romId)) throw new Error(`duplicate manifest ROM id ${record.romId}`)
     romIds.add(record.romId)
     validateRomRecord(record, coreIds)
+    const platform = requiredString(
+      record.expectedLegacyRow.fields.platform,
+      `ROM ${record.romId} expectedLegacyRow.fields.platform`,
+    )
+    if (!platformCoreContracts.has(platform)) {
+      throw new Error(`ROM ${record.romId} platform ${platform} has no explicit core mapping`)
+    }
+    const mappedCoreId = platformCoreContracts.get(platform)
+    if (record.coreContractId !== mappedCoreId) {
+      throw new Error(
+        `ROM ${record.romId} platform ${platform} maps to core ${mappedCoreId}, not ROM core ${record.coreContractId}`,
+      )
+    }
+  }
+  const coreContracts = new Map()
+  for (const core of manifest.cores) {
+    coreContracts.set(
+      core.id,
+      validateCoreContract(core, { arcadeRequired: arcadeCoreIds.has(core.id) }),
+    )
   }
   if (expectedRomIds) {
     const expected = [...new Set(expectedRomIds)].sort((left, right) => left - right)
@@ -453,14 +487,6 @@ export function validateLegacyLibraryManifest(
     }
   }
 
-  if (manifest.platformCoreContracts) {
-    for (const [platform, coreId] of Object.entries(manifest.platformCoreContracts)) {
-      requiredString(platform, 'platformCoreContracts platform')
-      if (!coreIds.has(coreId)) {
-        throw new Error(`platform ${platform} references unknown core ${coreId}`)
-      }
-    }
-  }
   return {
     manifestPath: manifestPath ? resolve(manifestPath) : null,
     coreContracts,
@@ -579,6 +605,19 @@ function assertCoreArtifactProvenance(row, plan, assetsBySha) {
         `core artifact ${plan.artifactFingerprint} provenance conflicts at ${field}`,
       )
     }
+  }
+  if (!hasOwn(provenance, 'operatorProvenance')) {
+    throw new Error(
+      `core artifact ${plan.artifactFingerprint} provenance lacks operatorProvenance`,
+    )
+  }
+  if (
+    canonicalizeLibraryJson(provenance.operatorProvenance) !==
+    canonicalizeLibraryJson(plan.operatorProvenance ?? null)
+  ) {
+    throw new Error(
+      `core artifact ${plan.artifactFingerprint} provenance conflicts at operatorProvenance`,
+    )
   }
   for (const name of ['js', 'wasm', 'dat']) {
     const actual = provenance.artifacts?.[name]
