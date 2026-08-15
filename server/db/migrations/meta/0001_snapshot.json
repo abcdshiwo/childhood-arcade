@@ -1,0 +1,2078 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "929e00b8-8642-406f-9b31-f485c6aa60d2",
+  "prevId": "39118c45-7452-4885-bc9e-e6d9ea3ce52c",
+  "tables": {
+    "assets": {
+      "name": "assets",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_path": {
+          "name": "file_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "file_size": {
+          "name": "file_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "assets_sha256_unique": {
+          "name": "assets_sha256_unique",
+          "columns": [
+            "sha256"
+          ],
+          "isUnique": true
+        },
+        "assets_file_path_unique": {
+          "name": "assets_file_path_unique",
+          "columns": [
+            "file_path"
+          ],
+          "isUnique": true
+        },
+        "idx_assets_kind": {
+          "name": "idx_assets_kind",
+          "columns": [
+            "kind"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "assets_file_size_nonnegative": {
+          "name": "assets_file_size_nonnegative",
+          "value": "\"assets\".\"file_size\" >= 0"
+        },
+        "assets_sha256_format": {
+          "name": "assets_sha256_format",
+          "value": "length(\"assets\".\"sha256\") = 64 AND \"assets\".\"sha256\" NOT GLOB '*[^0-9a-f]*'"
+        }
+      }
+    },
+    "batch_build_refs": {
+      "name": "batch_build_refs",
+      "columns": {
+        "import_batch_id": {
+          "name": "import_batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_build_id": {
+          "name": "rom_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "idx_batch_build_refs_build": {
+          "name": "idx_batch_build_refs_build",
+          "columns": [
+            "rom_build_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "batch_build_refs_import_batch_id_import_batches_id_fk": {
+          "name": "batch_build_refs_import_batch_id_import_batches_id_fk",
+          "tableFrom": "batch_build_refs",
+          "tableTo": "import_batches",
+          "columnsFrom": [
+            "import_batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "batch_build_refs_rom_build_id_rom_builds_id_fk": {
+          "name": "batch_build_refs_rom_build_id_rom_builds_id_fk",
+          "tableFrom": "batch_build_refs",
+          "tableTo": "rom_builds",
+          "columnsFrom": [
+            "rom_build_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "batch_build_refs_import_batch_id_rom_build_id_pk": {
+          "columns": [
+            "import_batch_id",
+            "rom_build_id"
+          ],
+          "name": "batch_build_refs_import_batch_id_rom_build_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "build_source_members": {
+      "name": "build_source_members",
+      "columns": {
+        "import_batch_id": {
+          "name": "import_batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_build_id": {
+          "name": "rom_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_archive_path": {
+          "name": "source_archive_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member_name": {
+          "name": "member_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member_role": {
+          "name": "member_role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member_order": {
+          "name": "member_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "member_size": {
+          "name": "member_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "crc32": {
+          "name": "crc32",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "idx_build_source_members_build": {
+          "name": "idx_build_source_members_build",
+          "columns": [
+            "rom_build_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "build_source_members_import_batch_id_import_batches_id_fk": {
+          "name": "build_source_members_import_batch_id_import_batches_id_fk",
+          "tableFrom": "build_source_members",
+          "tableTo": "import_batches",
+          "columnsFrom": [
+            "import_batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "build_source_members_rom_build_id_rom_builds_id_fk": {
+          "name": "build_source_members_rom_build_id_rom_builds_id_fk",
+          "tableFrom": "build_source_members",
+          "tableTo": "rom_builds",
+          "columnsFrom": [
+            "rom_build_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "build_source_members_import_batch_id_rom_build_id_source_archive_path_member_name_pk": {
+          "columns": [
+            "import_batch_id",
+            "rom_build_id",
+            "source_archive_path",
+            "member_name"
+          ],
+          "name": "build_source_members_import_batch_id_rom_build_id_source_archive_path_member_name_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "build_source_members_values_nonnegative": {
+          "name": "build_source_members_values_nonnegative",
+          "value": "\"build_source_members\".\"member_order\" >= 0 AND \"build_source_members\".\"member_size\" >= 0"
+        }
+      }
+    },
+    "build_validation_runs": {
+      "name": "build_validation_runs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "rom_build_id": {
+          "name": "rom_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "browser_sha256": {
+          "name": "browser_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "harness_version": {
+          "name": "harness_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "core_artifact_fingerprint": {
+          "name": "core_artifact_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bios_manifest_sha256": {
+          "name": "bios_manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "result": {
+          "name": "result",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "failure_code": {
+          "name": "failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "log_asset_id": {
+          "name": "log_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "frame_asset_id": {
+          "name": "frame_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "acceptance": {
+          "name": "acceptance",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'pending'"
+        },
+        "accepted_at": {
+          "name": "accepted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "accepted_by": {
+          "name": "accepted_by",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "policy_version": {
+          "name": "policy_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "idx_build_validation_runs_build": {
+          "name": "idx_build_validation_runs_build",
+          "columns": [
+            "rom_build_id"
+          ],
+          "isUnique": false
+        },
+        "build_validation_runs_one_accepted_per_build": {
+          "name": "build_validation_runs_one_accepted_per_build",
+          "columns": [
+            "rom_build_id"
+          ],
+          "isUnique": true,
+          "where": "\"build_validation_runs\".\"acceptance\" = 'accepted'"
+        }
+      },
+      "foreignKeys": {
+        "build_validation_runs_rom_build_id_rom_builds_id_fk": {
+          "name": "build_validation_runs_rom_build_id_rom_builds_id_fk",
+          "tableFrom": "build_validation_runs",
+          "tableTo": "rom_builds",
+          "columnsFrom": [
+            "rom_build_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "build_validation_runs_log_asset_id_assets_id_fk": {
+          "name": "build_validation_runs_log_asset_id_assets_id_fk",
+          "tableFrom": "build_validation_runs",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "log_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "build_validation_runs_frame_asset_id_assets_id_fk": {
+          "name": "build_validation_runs_frame_asset_id_assets_id_fk",
+          "tableFrom": "build_validation_runs",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "frame_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "build_validation_runs_accepted_by_users_id_fk": {
+          "name": "build_validation_runs_accepted_by_users_id_fk",
+          "tableFrom": "build_validation_runs",
+          "tableTo": "users",
+          "columnsFrom": [
+            "accepted_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "build_validation_runs_result_check": {
+          "name": "build_validation_runs_result_check",
+          "value": "\"build_validation_runs\".\"result\" IN ('passed', 'failed', 'inconclusive')"
+        },
+        "build_validation_runs_acceptance_check": {
+          "name": "build_validation_runs_acceptance_check",
+          "value": "\"build_validation_runs\".\"acceptance\" IN ('pending', 'accepted', 'rejected')"
+        },
+        "build_validation_runs_inconclusive_not_accepted": {
+          "name": "build_validation_runs_inconclusive_not_accepted",
+          "value": "NOT (\"build_validation_runs\".\"result\" = 'inconclusive' AND \"build_validation_runs\".\"acceptance\" = 'accepted')"
+        },
+        "build_validation_runs_acceptance_metadata": {
+          "name": "build_validation_runs_acceptance_metadata",
+          "value": "\"build_validation_runs\".\"acceptance\" <> 'accepted' OR (\"build_validation_runs\".\"accepted_at\" IS NOT NULL AND \"build_validation_runs\".\"policy_version\" IS NOT NULL)"
+        }
+      }
+    },
+    "core_artifacts": {
+      "name": "core_artifacts",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "core_name": {
+          "name": "core_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "display_version": {
+          "name": "display_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_commit": {
+          "name": "source_commit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "js_asset_id": {
+          "name": "js_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "js_sha256": {
+          "name": "js_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "wasm_asset_id": {
+          "name": "wasm_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "wasm_sha256": {
+          "name": "wasm_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "dat_asset_id": {
+          "name": "dat_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dat_sha256": {
+          "name": "dat_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bios_asset_id": {
+          "name": "bios_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "bios_manifest_sha256": {
+          "name": "bios_manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "artifact_fingerprint": {
+          "name": "artifact_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provenance_json": {
+          "name": "provenance_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "is_enabled": {
+          "name": "is_enabled",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "core_artifacts_fingerprint_unique": {
+          "name": "core_artifacts_fingerprint_unique",
+          "columns": [
+            "artifact_fingerprint"
+          ],
+          "isUnique": true
+        },
+        "idx_core_artifacts_name": {
+          "name": "idx_core_artifacts_name",
+          "columns": [
+            "core_name"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "core_artifacts_js_asset_id_assets_id_fk": {
+          "name": "core_artifacts_js_asset_id_assets_id_fk",
+          "tableFrom": "core_artifacts",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "js_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "core_artifacts_wasm_asset_id_assets_id_fk": {
+          "name": "core_artifacts_wasm_asset_id_assets_id_fk",
+          "tableFrom": "core_artifacts",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "wasm_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "core_artifacts_dat_asset_id_assets_id_fk": {
+          "name": "core_artifacts_dat_asset_id_assets_id_fk",
+          "tableFrom": "core_artifacts",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "dat_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "core_artifacts_bios_asset_id_assets_id_fk": {
+          "name": "core_artifacts_bios_asset_id_assets_id_fk",
+          "tableFrom": "core_artifacts",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "bios_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "favorites": {
+      "name": "favorites",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_id": {
+          "name": "rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "idx_favorites_user": {
+          "name": "idx_favorites_user",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "idx_favorites_rom": {
+          "name": "idx_favorites_rom",
+          "columns": [
+            "rom_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "favorites_user_id_users_id_fk": {
+          "name": "favorites_user_id_users_id_fk",
+          "tableFrom": "favorites",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "favorites_rom_id_roms_id_fk": {
+          "name": "favorites_rom_id_roms_id_fk",
+          "tableFrom": "favorites",
+          "tableTo": "roms",
+          "columnsFrom": [
+            "rom_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "favorites_user_id_rom_id_pk": {
+          "columns": [
+            "user_id",
+            "rom_id"
+          ],
+          "name": "favorites_user_id_rom_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "import_batches": {
+      "name": "import_batches",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_user_id": {
+          "name": "owner_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cold_source_sha256": {
+          "name": "cold_source_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "manifest_sha256": {
+          "name": "manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "planned_count": {
+          "name": "planned_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "actual_count": {
+          "name": "actual_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "total_bytes": {
+          "name": "total_bytes",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'staged'"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rolled_back_at": {
+          "name": "rolled_back_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "idx_import_batches_owner": {
+          "name": "idx_import_batches_owner",
+          "columns": [
+            "owner_user_id"
+          ],
+          "isUnique": false
+        },
+        "idx_import_batches_status": {
+          "name": "idx_import_batches_status",
+          "columns": [
+            "status"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "import_batches_owner_user_id_users_id_fk": {
+          "name": "import_batches_owner_user_id_users_id_fk",
+          "tableFrom": "import_batches",
+          "tableTo": "users",
+          "columnsFrom": [
+            "owner_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "import_batches_status_check": {
+          "name": "import_batches_status_check",
+          "value": "\"import_batches\".\"status\" IN ('staged', 'validating', 'committed_private', 'publishing', 'published', 'rolling_back', 'rolled_back', 'rollback_failed', 'failed')"
+        },
+        "import_batches_counts_nonnegative": {
+          "name": "import_batches_counts_nonnegative",
+          "value": "\"import_batches\".\"planned_count\" >= 0 AND \"import_batches\".\"actual_count\" >= 0 AND \"import_batches\".\"total_bytes\" >= 0"
+        }
+      }
+    },
+    "import_operations": {
+      "name": "import_operations",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "import_batch_id": {
+          "name": "import_batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sequence": {
+          "name": "sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "operation_kind": {
+          "name": "operation_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "entity_key": {
+          "name": "entity_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "before_json": {
+          "name": "before_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "after_json": {
+          "name": "after_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "reverted_at": {
+          "name": "reverted_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "import_operations_batch_sequence_unique": {
+          "name": "import_operations_batch_sequence_unique",
+          "columns": [
+            "import_batch_id",
+            "sequence"
+          ],
+          "isUnique": true
+        },
+        "idx_import_operations_batch": {
+          "name": "idx_import_operations_batch",
+          "columns": [
+            "import_batch_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "import_operations_import_batch_id_import_batches_id_fk": {
+          "name": "import_operations_import_batch_id_import_batches_id_fk",
+          "tableFrom": "import_operations",
+          "tableTo": "import_batches",
+          "columnsFrom": [
+            "import_batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "library_migration_state": {
+      "name": "library_migration_state",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "phase": {
+          "name": "phase",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "library_migration_state_singleton": {
+          "name": "library_migration_state_singleton",
+          "value": "\"library_migration_state\".\"id\" = 1"
+        },
+        "library_migration_state_phase_check": {
+          "name": "library_migration_state_phase_check",
+          "value": "\"library_migration_state\".\"phase\" IN ('expanded', 'backfilled', 'contracted')"
+        }
+      }
+    },
+    "rom_asset_refs": {
+      "name": "rom_asset_refs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "rom_id": {
+          "name": "rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "asset_id": {
+          "name": "asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "match_kind": {
+          "name": "match_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_set_name": {
+          "name": "source_set_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_file_sha256": {
+          "name": "source_file_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "import_batch_id": {
+          "name": "import_batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "rom_asset_refs_id_rom_unique": {
+          "name": "rom_asset_refs_id_rom_unique",
+          "columns": [
+            "id",
+            "rom_id"
+          ],
+          "isUnique": true
+        },
+        "idx_rom_asset_refs_rom": {
+          "name": "idx_rom_asset_refs_rom",
+          "columns": [
+            "rom_id"
+          ],
+          "isUnique": false
+        },
+        "idx_rom_asset_refs_asset": {
+          "name": "idx_rom_asset_refs_asset",
+          "columns": [
+            "asset_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "rom_asset_refs_rom_id_roms_id_fk": {
+          "name": "rom_asset_refs_rom_id_roms_id_fk",
+          "tableFrom": "rom_asset_refs",
+          "tableTo": "roms",
+          "columnsFrom": [
+            "rom_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "rom_asset_refs_asset_id_assets_id_fk": {
+          "name": "rom_asset_refs_asset_id_assets_id_fk",
+          "tableFrom": "rom_asset_refs",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "rom_asset_refs_import_batch_id_import_batches_id_fk": {
+          "name": "rom_asset_refs_import_batch_id_import_batches_id_fk",
+          "tableFrom": "rom_asset_refs",
+          "tableTo": "import_batches",
+          "columnsFrom": [
+            "import_batch_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rom_asset_refs_match_kind_check": {
+          "name": "rom_asset_refs_match_kind_check",
+          "value": "\"rom_asset_refs\".\"match_kind\" IN ('exact', 'alias', 'parent', 'source_reference', 'placeholder')"
+        }
+      }
+    },
+    "rom_builds": {
+      "name": "rom_builds",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "rom_id": {
+          "name": "rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "core_artifact_id": {
+          "name": "core_artifact_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "archive_asset_id": {
+          "name": "archive_asset_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "archive_sha256": {
+          "name": "archive_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "content_manifest_sha256": {
+          "name": "content_manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "build_fingerprint": {
+          "name": "build_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "static_status": {
+          "name": "static_status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "static_failure_code": {
+          "name": "static_failure_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "static_failure_details_json": {
+          "name": "static_failure_details_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "archive_layout": {
+          "name": "archive_layout",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "runtime_parent_build_id": {
+          "name": "runtime_parent_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "rom_builds_fingerprint_unique": {
+          "name": "rom_builds_fingerprint_unique",
+          "columns": [
+            "build_fingerprint"
+          ],
+          "isUnique": true
+        },
+        "rom_builds_id_rom_unique": {
+          "name": "rom_builds_id_rom_unique",
+          "columns": [
+            "id",
+            "rom_id"
+          ],
+          "isUnique": true
+        },
+        "idx_rom_builds_rom": {
+          "name": "idx_rom_builds_rom",
+          "columns": [
+            "rom_id"
+          ],
+          "isUnique": false
+        },
+        "idx_rom_builds_core": {
+          "name": "idx_rom_builds_core",
+          "columns": [
+            "core_artifact_id"
+          ],
+          "isUnique": false
+        },
+        "idx_rom_builds_parent": {
+          "name": "idx_rom_builds_parent",
+          "columns": [
+            "runtime_parent_build_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "rom_builds_rom_id_roms_id_fk": {
+          "name": "rom_builds_rom_id_roms_id_fk",
+          "tableFrom": "rom_builds",
+          "tableTo": "roms",
+          "columnsFrom": [
+            "rom_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "rom_builds_core_artifact_id_core_artifacts_id_fk": {
+          "name": "rom_builds_core_artifact_id_core_artifacts_id_fk",
+          "tableFrom": "rom_builds",
+          "tableTo": "core_artifacts",
+          "columnsFrom": [
+            "core_artifact_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "rom_builds_archive_asset_id_assets_id_fk": {
+          "name": "rom_builds_archive_asset_id_assets_id_fk",
+          "tableFrom": "rom_builds",
+          "tableTo": "assets",
+          "columnsFrom": [
+            "archive_asset_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "rom_builds_runtime_parent_build_id_rom_builds_id_fk": {
+          "name": "rom_builds_runtime_parent_build_id_rom_builds_id_fk",
+          "tableFrom": "rom_builds",
+          "tableTo": "rom_builds",
+          "columnsFrom": [
+            "runtime_parent_build_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "rom_builds_static_status_check": {
+          "name": "rom_builds_static_status_check",
+          "value": "\"rom_builds\".\"static_status\" IN ('complete', 'blocked', 'unsupported')"
+        },
+        "rom_builds_archive_layout_check": {
+          "name": "rom_builds_archive_layout_check",
+          "value": "(\"rom_builds\".\"archive_layout\" = 'standalone' AND \"rom_builds\".\"runtime_parent_build_id\" IS NULL) OR (\"rom_builds\".\"archive_layout\" = 'split' AND \"rom_builds\".\"runtime_parent_build_id\" IS NOT NULL)"
+        },
+        "rom_builds_complete_archive_check": {
+          "name": "rom_builds_complete_archive_check",
+          "value": "\"rom_builds\".\"static_status\" <> 'complete' OR (\"rom_builds\".\"archive_asset_id\" IS NOT NULL AND \"rom_builds\".\"archive_sha256\" IS NOT NULL)"
+        }
+      }
+    },
+    "roms": {
+      "name": "roms",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "platform": {
+          "name": "platform",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_path": {
+          "name": "file_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_size": {
+          "name": "file_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": false
+        },
+        "parent_rom_id": {
+          "name": "parent_rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "set_name_normalized": {
+          "name": "set_name_normalized",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "variant_kind": {
+          "name": "variant_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "dat_parent_set_name": {
+          "name": "dat_parent_set_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "family_root_set_name": {
+          "name": "family_root_set_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "version_label": {
+          "name": "version_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "active_build_id": {
+          "name": "active_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "active_thumbnail_ref_id": {
+          "name": "active_thumbnail_ref_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "idx_roms_parent": {
+          "name": "idx_roms_parent",
+          "columns": [
+            "parent_rom_id"
+          ],
+          "isUnique": false
+        },
+        "idx_roms_active_build": {
+          "name": "idx_roms_active_build",
+          "columns": [
+            "active_build_id"
+          ],
+          "isUnique": false
+        },
+        "idx_roms_active_thumbnail": {
+          "name": "idx_roms_active_thumbnail",
+          "columns": [
+            "active_thumbnail_ref_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "roms_user_id_users_id_fk": {
+          "name": "roms_user_id_users_id_fk",
+          "tableFrom": "roms",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "rooms": {
+      "name": "rooms",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "host_user_id": {
+          "name": "host_user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_id": {
+          "name": "rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_build_id": {
+          "name": "rom_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "is_public": {
+          "name": "is_public",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "allow_play": {
+          "name": "allow_play",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": true
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "rooms_code_unique": {
+          "name": "rooms_code_unique",
+          "columns": [
+            "code"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {
+        "rooms_host_user_id_users_id_fk": {
+          "name": "rooms_host_user_id_users_id_fk",
+          "tableFrom": "rooms",
+          "tableTo": "users",
+          "columnsFrom": [
+            "host_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "rooms_rom_id_roms_id_fk": {
+          "name": "rooms_rom_id_roms_id_fk",
+          "tableFrom": "rooms",
+          "tableTo": "roms",
+          "columnsFrom": [
+            "rom_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "save_states": {
+      "name": "save_states",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_id": {
+          "name": "rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "rom_build_id": {
+          "name": "rom_build_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "build_fingerprint": {
+          "name": "build_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "core_artifact_fingerprint": {
+          "name": "core_artifact_fingerprint",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "content_manifest_sha256": {
+          "name": "content_manifest_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "slot": {
+          "name": "slot",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "file_path": {
+          "name": "file_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_size": {
+          "name": "file_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "save_states_user_id_users_id_fk": {
+          "name": "save_states_user_id_users_id_fk",
+          "tableFrom": "save_states",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "save_states_rom_id_roms_id_fk": {
+          "name": "save_states_rom_id_roms_id_fk",
+          "tableFrom": "save_states",
+          "tableTo": "roms",
+          "columnsFrom": [
+            "rom_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "sessions": {
+      "name": "sessions",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ip": {
+          "name": "ip",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_activity_at": {
+          "name": "last_activity_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "sessions_token_unique": {
+          "name": "sessions_token_unique",
+          "columns": [
+            "token"
+          ],
+          "isUnique": true
+        },
+        "idx_sessions_user": {
+          "name": "idx_sessions_user",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        },
+        "idx_sessions_expires": {
+          "name": "idx_sessions_expires",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "sessions_user_id_users_id_fk": {
+          "name": "sessions_user_id_users_id_fk",
+          "tableFrom": "sessions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "settings": {
+      "name": "settings",
+      "columns": {
+        "key": {
+          "name": "key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "users": {
+      "name": "users",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "username": {
+          "name": "username",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "'user'"
+        },
+        "status": {
+          "name": "status",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "(unixepoch())"
+        }
+      },
+      "indexes": {
+        "users_username_unique": {
+          "name": "users_username_unique",
+          "columns": [
+            "username"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

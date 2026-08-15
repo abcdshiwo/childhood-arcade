@@ -8,88 +8,111 @@
       "name": "roms",
       "columns": {
         "id": {
+          "autoincrement": true,
           "name": "id",
           "type": "integer",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "user_id": {
+          "autoincrement": false,
           "name": "user_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "title": {
+          "autoincrement": false,
           "name": "title",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "platform": {
+          "autoincrement": false,
           "name": "platform",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "file_name": {
+          "autoincrement": false,
           "name": "file_name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "file_path": {
+          "autoincrement": false,
           "name": "file_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "file_size": {
+          "autoincrement": false,
           "name": "file_size",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "is_public": {
+          "default": false,
+          "autoincrement": false,
           "name": "is_public",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": true
+        },
+        "parent_rom_id": {
           "autoincrement": false,
-          "default": false
+          "name": "parent_rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version_label": {
+          "autoincrement": false,
+          "name": "version_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "status": {
+          "default": 1,
+          "autoincrement": false,
           "name": "status",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
+          "notNull": true
         },
         "created_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "created_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         },
         "updated_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "updated_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         }
       },
-      "indexes": {},
+      "compositePrimaryKeys": {},
+      "indexes": {
+        "idx_roms_parent": {
+          "name": "idx_roms_parent",
+          "columns": [
+            "parent_rom_id"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {
         "roms_user_id_users_id_fk": {
           "name": "roms_user_id_users_id_fk",
@@ -105,7 +128,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -113,95 +135,96 @@
       "name": "rooms",
       "columns": {
         "id": {
+          "autoincrement": true,
           "name": "id",
           "type": "integer",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "code": {
+          "autoincrement": false,
           "name": "code",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "host_user_id": {
+          "autoincrement": false,
           "name": "host_user_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "rom_id": {
+          "autoincrement": false,
           "name": "rom_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "name": {
+          "autoincrement": false,
           "name": "name",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "is_public": {
+          "default": true,
+          "autoincrement": false,
           "name": "is_public",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
+          "notNull": true
         },
         "allow_play": {
+          "default": true,
+          "autoincrement": false,
           "name": "allow_play",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": true
+          "notNull": true
         },
         "password_hash": {
+          "autoincrement": false,
           "name": "password_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "status": {
+          "default": 1,
+          "autoincrement": false,
           "name": "status",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
+          "notNull": true
         },
         "created_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "created_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         },
         "updated_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "updated_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         },
         "closed_at": {
+          "autoincrement": false,
           "name": "closed_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         }
       },
+      "compositePrimaryKeys": {},
       "indexes": {
         "rooms_code_unique": {
           "name": "rooms_code_unique",
@@ -212,19 +235,6 @@
         }
       },
       "foreignKeys": {
-        "rooms_host_user_id_users_id_fk": {
-          "name": "rooms_host_user_id_users_id_fk",
-          "tableFrom": "rooms",
-          "tableTo": "users",
-          "columnsFrom": [
-            "host_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "rooms_rom_id_roms_id_fk": {
           "name": "rooms_rom_id_roms_id_fk",
           "tableFrom": "rooms",
@@ -237,9 +247,21 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "rooms_host_user_id_users_id_fk": {
+          "name": "rooms_host_user_id_users_id_fk",
+          "tableFrom": "rooms",
+          "tableTo": "users",
+          "columnsFrom": [
+            "host_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -247,80 +269,68 @@
       "name": "save_states",
       "columns": {
         "id": {
+          "autoincrement": true,
           "name": "id",
           "type": "integer",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "user_id": {
+          "autoincrement": false,
           "name": "user_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "rom_id": {
+          "autoincrement": false,
           "name": "rom_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "slot": {
+          "default": 0,
+          "autoincrement": false,
           "name": "slot",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 0
+          "notNull": true
         },
         "file_path": {
+          "autoincrement": false,
           "name": "file_path",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "file_size": {
+          "autoincrement": false,
           "name": "file_size",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "status": {
+          "default": 1,
+          "autoincrement": false,
           "name": "status",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
+          "notNull": true
         },
         "updated_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "updated_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         }
       },
+      "compositePrimaryKeys": {},
       "indexes": {},
       "foreignKeys": {
-        "save_states_user_id_users_id_fk": {
-          "name": "save_states_user_id_users_id_fk",
-          "tableFrom": "save_states",
-          "tableTo": "users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "save_states_rom_id_roms_id_fk": {
           "name": "save_states_rom_id_roms_id_fk",
           "tableFrom": "save_states",
@@ -333,9 +343,21 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "save_states_user_id_users_id_fk": {
+          "name": "save_states_user_id_users_id_fk",
+          "tableFrom": "save_states",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -343,71 +365,72 @@
       "name": "sessions",
       "columns": {
         "id": {
+          "autoincrement": true,
           "name": "id",
           "type": "integer",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "user_id": {
+          "autoincrement": false,
           "name": "user_id",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "token": {
+          "autoincrement": false,
           "name": "token",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "ip": {
+          "autoincrement": false,
           "name": "ip",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "user_agent": {
+          "autoincrement": false,
           "name": "user_agent",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "expires_at": {
+          "autoincrement": false,
           "name": "expires_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "last_activity_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "last_activity_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         },
         "created_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "created_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         }
       },
+      "compositePrimaryKeys": {},
       "indexes": {
-        "sessions_token_unique": {
-          "name": "sessions_token_unique",
+        "idx_sessions_expires": {
+          "name": "idx_sessions_expires",
           "columns": [
-            "token"
+            "expires_at"
           ],
-          "isUnique": true
+          "isUnique": false
         },
         "idx_sessions_user": {
           "name": "idx_sessions_user",
@@ -416,12 +439,12 @@
           ],
           "isUnique": false
         },
-        "idx_sessions_expires": {
-          "name": "idx_sessions_expires",
+        "sessions_token_unique": {
+          "name": "sessions_token_unique",
           "columns": [
-            "expires_at"
+            "token"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {
@@ -439,7 +462,6 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -447,31 +469,31 @@
       "name": "settings",
       "columns": {
         "key": {
+          "autoincrement": false,
           "name": "key",
           "type": "text",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "value": {
+          "autoincrement": false,
           "name": "value",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "updated_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "updated_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         }
       },
+      "compositePrimaryKeys": {},
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
@@ -479,59 +501,60 @@
       "name": "users",
       "columns": {
         "id": {
+          "autoincrement": true,
           "name": "id",
           "type": "integer",
           "primaryKey": true,
-          "notNull": true,
-          "autoincrement": true
+          "notNull": true
         },
         "username": {
+          "autoincrement": false,
           "name": "username",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "password_hash": {
+          "autoincrement": false,
           "name": "password_hash",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "role": {
+          "default": "'user'",
+          "autoincrement": false,
           "name": "role",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'user'"
+          "notNull": true
         },
         "status": {
+          "default": 1,
+          "autoincrement": false,
           "name": "status",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
+          "notNull": true
         },
         "created_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "created_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         },
         "updated_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
           "name": "updated_at",
           "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(unixepoch())"
+          "notNull": true
         }
       },
+      "compositePrimaryKeys": {},
       "indexes": {
         "users_username_unique": {
           "name": "users_username_unique",
@@ -542,7 +565,88 @@
         }
       },
       "foreignKeys": {},
-      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "favorites": {
+      "name": "favorites",
+      "columns": {
+        "user_id": {
+          "autoincrement": false,
+          "name": "user_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rom_id": {
+          "autoincrement": false,
+          "name": "rom_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "default": "(unixepoch())",
+          "autoincrement": false,
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "compositePrimaryKeys": {
+        "favorites_user_id_rom_id_pk": {
+          "columns": [
+            "user_id",
+            "rom_id"
+          ],
+          "name": "favorites_user_id_rom_id_pk"
+        }
+      },
+      "indexes": {
+        "idx_favorites_rom": {
+          "name": "idx_favorites_rom",
+          "columns": [
+            "rom_id"
+          ],
+          "isUnique": false
+        },
+        "idx_favorites_user": {
+          "name": "idx_favorites_user",
+          "columns": [
+            "user_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "favorites_rom_id_roms_id_fk": {
+          "name": "favorites_rom_id_roms_id_fk",
+          "tableFrom": "favorites",
+          "tableTo": "roms",
+          "columnsFrom": [
+            "rom_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "favorites_user_id_users_id_fk": {
+          "name": "favorites_user_id_users_id_fk",
+          "tableFrom": "favorites",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     }
