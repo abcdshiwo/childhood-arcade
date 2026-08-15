@@ -58,10 +58,14 @@ const FORBIDDEN_EXTENSIONS = [
 ]
 
 function normalizePath(path) {
-  return path.replaceAll('\\', '/').replace(/^\.\//, '').replace(/^\/+/, '')
+  return path.replace(/^\.\//, '').replace(/^\/+/, '')
 }
 
 export function classifyArcadeStagedPath(inputPath) {
+  if (inputPath.includes('\\')) {
+    return 'ambiguous backslash path is forbidden; Git index paths must use forward slashes'
+  }
+
   const path = normalizePath(inputPath)
   const lowerPath = path.toLowerCase()
 
@@ -87,8 +91,8 @@ export function classifyArcadeStagedPath(inputPath) {
 
 export function findForbiddenArcadePaths(paths) {
   return paths.flatMap((inputPath) => {
-    const path = normalizePath(inputPath)
-    const reason = classifyArcadeStagedPath(path)
+    const reason = classifyArcadeStagedPath(inputPath)
+    const path = inputPath.includes('\\') ? inputPath : normalizePath(inputPath)
     return reason ? [{ path, reason }] : []
   })
 }

@@ -335,6 +335,19 @@ test('staged-file guard rejects case variants of audited core paths', async () =
   assert.ok(forbidden.every(({ reason }) => /unaudited core artifact/i.test(reason)))
 })
 
+test('staged-file guard rejects literal-backslash audited-core lookalikes', async () => {
+  const { findForbiddenArcadePaths } = await import(
+    '../scripts/check-arcade-staged-files.mjs'
+  )
+  const lookalike = String.raw`data\cores\fbalpha2012.wasm`
+
+  assert.deepEqual(findForbiddenArcadePaths(['data/cores/fbalpha2012.wasm']), [])
+  const forbidden = findForbiddenArcadePaths([lookalike])
+  assert.equal(forbidden.length, 1)
+  assert.equal(forbidden[0].path, lookalike)
+  assert.match(forbidden[0].reason, /backslash/i)
+})
+
 test('gitignore keeps every arcade working and evidence path outside the index', async () => {
   const ignores = new Set(
     (await readFile(new URL('../.gitignore', import.meta.url), 'utf8'))
