@@ -7,7 +7,11 @@
     "dev": "concurrently -n api,web -c blue,magenta \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --watch server/index.js",
     "dev:web": "vite",
-    "test": "node --test test/*.test.js",
+    "test": "node scripts/run-test-suite.mjs",
+    "test:node": "node scripts/run-test-suite.mjs node",
+    "test:component": "node scripts/run-test-suite.mjs component",
+    "test:browser": "node scripts/run-test-suite.mjs browser",
+    "check:arcade-staged": "node scripts/check-arcade-staged-files.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "start": "NODE_ENV=production node server/index.js"
@@ -27,8 +31,12 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.2.0",
+    "@vue/test-utils": "2.4.11",
     "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.10",
-    "vite": "^6.0.0"
+    "happy-dom": "20.11.2",
+    "playwright-core": "1.58.2",
+    "vite": "^6.0.0",
+    "vitest": "4.1.10"
   }
 }

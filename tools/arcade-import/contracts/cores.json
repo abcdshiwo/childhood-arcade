@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "contractKind": "hash-pinned-core-contracts",
+  "signed": false,
+  "cores": [
+    {
+      "id": "fbneo_1.0.0.03_2f41022",
+      "coreName": "fbneo",
+      "runtimeName": "FinalBurn Neo",
+      "runtimeVersion": "v1.0.0.03 2f41022",
+      "frontendVersion": "1.22.2",
+      "contractEnabled": true,
+      "runtimeValidationStatus": "existing-core-not-revalidated-for-w165",
+      "candidateRows": 277,
+      "artifacts": {
+        "js": {
+          "path": "data/cores/fbneo.js",
+          "sha256": "cd8e329caa68e7125b1f70ff91129f97b2935745f5fbaa31ba4e3ab1bccd4697",
+          "hashMode": "lf-normalized-text"
+        },
+        "wasm": {
+          "path": "data/cores/fbneo.wasm",
+          "sha256": "7ad627b58de8832dbceb9c9b92c18e5ee198b87eb3ada95f4ac1aaa80755ef23",
+          "hashMode": "raw"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/libretro/FBNeo",
+        "commit": "2f41022002337ed20186144bbddb2d53392fab85",
+        "provenance": "runtime binary embeds 2f41022; the authoritative audit pins the matching commit DAT and the canonical LF-normalized JS plus raw WASM hashes"
+      },
+      "contract": {
+        "kind": "upstream-exact-dat",
+        "name": "FinalBurn Neo (ClrMame Pro XML, Arcade only).dat",
+        "sha256": "e7b55931f73f458737d85aff0be1c516083ac8e0ee7ecd76068c864a8acba1c5",
+        "sourceUrl": "https://raw.githubusercontent.com/libretro/FBNeo/2f41022002337ed20186144bbddb2d53392fab85/dats/FinalBurn%20Neo%20%28ClrMame%20Pro%20XML%2C%20Arcade%20only%29.dat"
+      }
+    },
+    {
+      "id": "mame2003_plus_62c7089",
+      "coreName": "mame2003_plus",
+      "runtimeName": "MAME 2003-Plus",
+      "runtimeVersion": "62c7089",
+      "frontendVersion": "1.22.2",
+      "contractEnabled": true,
+      "runtimeValidationStatus": "existing-core-not-revalidated-for-w165",
+      "candidateRows": 97,
+      "artifacts": {
+        "js": {
+          "path": "data/cores/mame2003_plus.js",
+          "sha256": "6d7dc65e13c88837d6aa9757720b11446f09fa6d9b503b5a6e8ee6b8e873941e",
+          "hashMode": "lf-normalized-text"
+        },
+        "wasm": {
+          "path": "data/cores/mame2003_plus.wasm",
+          "sha256": "47a47e9555426a04c023303434b432b8c6a70d8ab6a420fe7446e6d6e8c2546c",
+          "hashMode": "raw"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/libretro/mame2003-plus-libretro",
+        "commit": "62c7089644966f6ac5fc79fe03592603579a409d",
+        "provenance": "runtime WASM embeds short commit 62c7089; the audit resolves it to the exact upstream commit and verifies the mirror artifact lineage"
+      },
+      "contract": {
+        "kind": "upstream-exact-dat",
+        "name": "mame2003-plus-62c7089644966f6ac5fc79fe03592603579a409d.xml",
+        "sha256": "e935b1343b39a85fd9e67914f7edfab28f55f4502751d33288397aabd33d6de9",
+        "sourceUrl": "https://raw.githubusercontent.com/libretro/mame2003-plus-libretro/62c7089644966f6ac5fc79fe03592603579a409d/metadata/mame2003-plus.xml"
+      }
+    },
+    {
+      "id": "fbalpha2012_cps1_028",
+      "coreName": "fbalpha2012_cps1",
+      "runtimeName": "FB Alpha 2012 CPS-1",
+      "runtimeVersion": "v0.2.97.28",
+      "frontendVersion": "1.22.2",
+      "contractEnabled": true,
+      "runtimeValidationStatus": "static-unverified",
+      "candidateRows": 36,
+      "artifacts": {
+        "js": {
+          "path": "data/cores/fbalpha2012_cps1.js",
+          "sha256": "1b6fcfecae9a029dc0ad6706af4e1163da6cfded3d92ec2e193fc711603ff590",
+          "hashMode": "lf-normalized-text"
+        },
+        "wasm": {
+          "path": "data/cores/fbalpha2012_cps1.wasm",
+          "sha256": "021a05264877a9a1ea8c7722314513c2a1f23ab9491a2369b183b9788c524678",
+          "hashMode": "raw"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/libretro/fbalpha2012_cps1",
+        "commit": "2499e30247da4d2535c2df886186e165cbff48e7",
+        "provenance": "audit locks the dedicated binary to a commit-added runtime string plus full driver coverage and a build-time-bounded upstream history; the runtime does not print the commit"
+      },
+      "contract": {
+        "kind": "deterministic-source-derived-runtime-contract",
+        "name": "fbalpha2012_cps1_028.dat",
+        "sha256": "1c4308e91a967f9306e744dc906abafaf5101b4082eb9fb80ffdd20a21ce95aa"
+      }
+    },
+    {
+      "id": "fbalpha2012_cps2_028",
+      "coreName": "fbalpha2012_cps2",
+      "runtimeName": "FB Alpha 2012 CPS-2",
+      "runtimeVersion": "v0.2.97.28",
+      "frontendVersion": "1.22.2",
+      "contractEnabled": true,
+      "runtimeValidationStatus": "static-unverified",
+      "candidateRows": 238,
+      "artifacts": {
+        "js": {
+          "path": "data/cores/fbalpha2012_cps2.js",
+          "sha256": "28f5e5e47bb609aaba7ea1cd99270d8b8854c4e3dfd9a4213a083964e05e2627",
+          "hashMode": "lf-normalized-text"
+        },
+        "wasm": {
+          "path": "data/cores/fbalpha2012_cps2.wasm",
+          "sha256": "67a5ff138215511cf9ab3af872d6499cf4b5a8bb1bae530cbceebd33c050f4e1",
+          "hashMode": "raw"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/libretro/fbalpha2012_cps2",
+        "commit": "d618e992f33bc79d040f01e3b1589a05566725d9",
+        "provenance": "audit locks the dedicated binary to a commit-added runtime string plus full driver coverage and a build-time-bounded upstream history; the runtime does not print the commit"
+      },
+      "contract": {
+        "kind": "deterministic-source-derived-runtime-contract",
+        "name": "fbalpha2012_cps2_028.dat",
+        "sha256": "4d0d953871e18275862258562eaa6f55d9b633967669673787c13407a41b2636"
+      }
+    },
+    {
+      "id": "fbalpha2012_full_029",
+      "coreName": "fbalpha2012",
+      "runtimeName": "FB Alpha 2012",
+      "runtimeVersion": "v0.2.97.29 77167ce",
+      "frontendVersion": "1.22.2",
+      "contractEnabled": true,
+      "runtimeValidationStatus": "static-unverified",
+      "candidateRows": 8,
+      "artifacts": {
+        "js": {
+          "path": "data/cores/fbalpha2012.js",
+          "sha256": "eba6a6074eb6c86d3ac640a3ee716461da188fb35e32de5c3b76ee18d032b80a",
+          "hashMode": "lf-normalized-text"
+        },
+        "wasm": {
+          "path": "data/cores/fbalpha2012.wasm",
+          "sha256": "a19485f4060a3473c0229bd2bd4b68d5e13c1ecae65bb91728f7eaec3337afdb",
+          "hashMode": "raw"
+        }
+      },
+      "source": {
+        "repository": "https://github.com/libretro/fbalpha2012",
+        "commit": "77167cea72e808384c136c8c163a6b4975ce7a84",
+        "provenance": "runtime binary embeds short commit 77167ce and the audit resolves it to the exact upstream commit"
+      },
+      "contract": {
+        "kind": "deterministic-source-derived-runtime-contract",
+        "name": "fbalpha2012_full_029.dat",
+        "sha256": "fb8d82fb3a222b1c5836af0a8cda09f9192dfa7cebe8448b4c5dc087e3e8ff93"
+      }
+    }
+  ]
+}

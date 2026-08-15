@@ -1,0 +1,249 @@
+{
+    "schemaVersion":  1,
+    "contractKind":  "fba2012-baseline-alias-folds",
+    "signed":  false,
+    "rows":  [
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "1941r1",
+                     "fbaTitle":  "1941 - Counter Attack (World)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "1941",
+                     "baselineTitle":  "1941 - Counter Attack (World)",
+                     "rawContentContractSha256":  "e109f4eb2bb9d0aea558d264b1d76ea2e3c33a3777c0eede108d8eafc7d332df",
+                     "requiredUniqueContentCount":  12
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "3wondersu",
+                     "fbaTitle":  "Three Wonders (wonder 3 910520 USA)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "3wonderu",
+                     "baselineTitle":  "Three Wonders (US 910520)",
+                     "rawContentContractSha256":  "5f1b64ccb6f4a35eaefeee6036c3ad135dfb43a977bcc2bff479f979c49d092d",
+                     "requiredUniqueContentCount":  19
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "captcommj",
+                     "fbaTitle":  "Captain Commando (911202 Japan)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "captcomj",
+                     "baselineTitle":  "Captain Commando (Japan 911202)",
+                     "rawContentContractSha256":  "6cf8409be31bf4aa2ca59967c860c11069f30f8b5e61f61e58f260a97c9f6c5a",
+                     "requiredUniqueContentCount":  15
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "captcommr1",
+                     "fbaTitle":  "Captain Commando (911014 other country)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "captcomm",
+                     "baselineTitle":  "Captain Commando (World 911014)",
+                     "rawContentContractSha256":  "3e8618ba9d777e7d5889e7b858d033178191004143d37be8086e82f5559c6552",
+                     "requiredUniqueContentCount":  15
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "captcommu",
+                     "fbaTitle":  "Captain Commando (910928 USA)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "captcomu",
+                     "baselineTitle":  "Captain Commando (US 910928)",
+                     "rawContentContractSha256":  "83e23e02c7899e176cf03efb77cc833db810c7fefeb0fdb5527be70a734bb629",
+                     "requiredUniqueContentCount":  15
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "ffightua",
+                     "fbaTitle":  "Final Fight (900112 USA)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "ffightu",
+                     "baselineTitle":  "Final Fight (US 900112)",
+                     "rawContentContractSha256":  "2a4ba4b8bada0e41d6411828a13cf60588d99d10afdf318f4b90a022e46a1e4d",
+                     "requiredUniqueContentCount":  12
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "forgottnua",
+                     "fbaTitle":  "Forgotten Worlds (US, B-Board 88618B-2, rev A)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "forgottn",
+                     "baselineTitle":  "Forgotten Worlds (US)",
+                     "rawContentContractSha256":  "86fbba949a91ca33381e8bfedc74c4d71091eabf0370b5c47ab709cc3703e49d",
+                     "requiredUniqueContentCount":  16
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "kodr1",
+                     "fbaTitle":  "The King of Dragons (910711 etc)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "kod",
+                     "baselineTitle":  "The King of Dragons (World 910711)",
+                     "rawContentContractSha256":  "e1c4150e9df8c85f0aeb8914de071dff28e48ce4f10b6f67977c748617502bf3",
+                     "requiredUniqueContentCount":  19
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "megamana",
+                     "fbaTitle":  "Mega Man - the power battle (951006 Asia)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "megaman",
+                     "baselineTitle":  "Mega Man - The Power Battle (CPS1 Asia 951006)",
+                     "rawContentContractSha256":  "1d0cfffac4709c6c561aa667997febc9547c1f377231e847f057ec58a036b510",
+                     "requiredUniqueContentCount":  22
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "mercsur1",
+                     "fbaTitle":  "Mercs (900302 USA)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "mercsu",
+                     "baselineTitle":  "Mercs (US 900302)",
+                     "rawContentContractSha256":  "a6915127b2b3123bea89b89b9571327c8f2ca65a987f223c586b858289077fdd",
+                     "requiredUniqueContentCount":  20
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "pang3b",
+                     "fbaTitle":  "Pang! 3 (bootleg set 1, 950511 Euro)",
+                     "fbaRelationKind":  "bootleg",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "pang3",
+                     "baselineTitle":  "Pang! 3 (Euro 950511)",
+                     "rawContentContractSha256":  "c26ef73f2bd79e6d00dfc5420704252549b7db250ef891809641cf349b01c0b1",
+                     "requiredUniqueContentCount":  7
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "punisherj",
+                     "fbaTitle":  "The Punisher (930422 Japan)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "punishrj",
+                     "baselineTitle":  "The Punisher (Japan 930422)",
+                     "rawContentContractSha256":  "1d3fc6ef56120570cea7478e7ce4324c4104bfa24895ee3a795a2a826add3e80",
+                     "requiredUniqueContentCount":  16
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "punisheru",
+                     "fbaTitle":  "The Punisher (930422 USA)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "punishru",
+                     "baselineTitle":  "The Punisher (US 930422)",
+                     "rawContentContractSha256":  "e3ba02ad5b158b739aba2e7541f417b92a8acd948ff26f970bc9f6c5f61d076a",
+                     "requiredUniqueContentCount":  22
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "qadjr",
+                     "fbaTitle":  "Quiz \u0026 Dragons (940921 Japan Resale Ver.)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "qadj",
+                     "baselineTitle":  "Quiz and Dragons (Japan 940921)",
+                     "rawContentContractSha256":  "32e0880b508917bb6a0069ed2ceb8c0c85b22edae99bcbc672b5b8f43efe4134",
+                     "requiredUniqueContentCount":  9
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "sf2ceea",
+                     "fbaTitle":  "Street Fighter II\u0027 - champion edition (street fighter 2\u0027 920313 etc)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "sf2ce",
+                     "baselineTitle":  "Street Fighter II\u0027 - Champion Edition (World 920313)",
+                     "rawContentContractSha256":  "f7ecddcd5d4832700498c10c8c6d0a7fbc414281cebaf46f846f636f08ea0479",
+                     "requiredUniqueContentCount":  18
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "sf2cejb",
+                     "fbaTitle":  "Street Fighter II\u0027 - champion edition (street fighter 2\u0027 920513 Japan)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "sf2cej",
+                     "baselineTitle":  "Street Fighter II\u0027 - Champion Edition (Japan 920513)",
+                     "rawContentContractSha256":  "c690af74ba162dd550fa13bcd8a62554cb9de3fd74054cd38c0650efbb6b6071",
+                     "requiredUniqueContentCount":  18
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "sf2hfj",
+                     "fbaTitle":  "Street Fighter II\u0027 Turbo - hyper fighting (street fighter 2\u0027 T 921209 Japan)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "sf2tj",
+                     "baselineTitle":  "Street Fighter II\u0027 Turbo - Hyper Fighting (Japan 921209)",
+                     "rawContentContractSha256":  "5c12f80cb914bf8276cba6f1828be3c71db582ffe1d6969af332f8b270fc2ae5",
+                     "requiredUniqueContentCount":  18
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "slammastu",
+                     "fbaTitle":  "Saturday Night Slam Masters (slam masters 930713 USA)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "slammasu",
+                     "baselineTitle":  "Saturday Night Slam Masters (US 930713)",
+                     "rawContentContractSha256":  "2c51d2f68701a459e4933e0f93501e1ad85cb9565edf16cc301ae9a17c090e55",
+                     "requiredUniqueContentCount":  28
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "striderua",
+                     "fbaTitle":  "Strider (US set 2)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "stridrua",
+                     "baselineTitle":  "Strider (US set 2)",
+                     "rawContentContractSha256":  "802d98dc1e3d2153a2fa113f7dbc4a23d70d3284e4cefbff3100a84748da5f8e",
+                     "requiredUniqueContentCount":  16
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "varthr1",
+                     "fbaTitle":  "Varth - operation thunderstorm (920612 etc)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "varth",
+                     "baselineTitle":  "Varth - Operation Thunderstorm (World 920612)",
+                     "rawContentContractSha256":  "b4b6a2a65e19bad268f734927e6c36498a40ebb7c620ea5975eef84fe25246b2",
+                     "requiredUniqueContentCount":  15
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "willowo",
+                     "fbaTitle":  "Willow (US old ver.)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "willowje",
+                     "baselineTitle":  "Willow (Japan, English)",
+                     "rawContentContractSha256":  "26e38c9570962016f7721f4bea8d37f159350f3a7a0800baac5a6f417eaa9967",
+                     "requiredUniqueContentCount":  20
+                 },
+                 {
+                     "platform":  "CPS1",
+                     "fbaDriverName":  "wofr1",
+                     "fbaTitle":  "Warriors of Fate (921002 etc)",
+                     "fbaRelationKind":  "clone",
+                     "baselineSource":  "MAME2003Plus_incremental",
+                     "baselineDriverName":  "wof",
+                     "baselineTitle":  "Warriors of Fate (World 921002)",
+                     "rawContentContractSha256":  "a1dd49c6a6c141355af36c958a6f2213331e908d9f2091c1aa82234f08306019",
+                     "requiredUniqueContentCount":  15
+                 }
+             ]
+}

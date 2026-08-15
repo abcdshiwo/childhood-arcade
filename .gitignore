@@ -14,3 +14,23 @@ dist
 data/app.db*
 data/uploads/
 data/saves/
+data/roms/
+
+# Agent-local inputs and planning evidence are never repository inputs.
+.qa-input/
+.superpowers/
+
+# Arcade import/smoke working data must be generated outside the worktree.
+tools/arcade-import/work/
+tools/arcade-import/output/
+tools/arcade-import/batch-output/
+tools/arcade-import/evidence/
+tools/arcade-import/generated/
+tools/arcade-import/normalized/
+tools/arcade-import/quarantine/
+tools/arcade-import/source-extracts/
+tools/arcade-smoke/profiles/
+tools/arcade-smoke/results/
+tools/arcade-smoke/evidence/
+tools/arcade-smoke/screenshots/
+tools/arcade-smoke/downloads/

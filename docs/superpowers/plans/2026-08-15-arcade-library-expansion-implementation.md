@@ -35,13 +35,13 @@
 - Modify `package.json` and `package-lock.json`
 
 - [ ] Write failing tests for exact manifest counts/hashes, unique selected rows, core provenance, path allowlists, and rejection of ROM/save/generated-image extensions from the Git index.
-- [ ] Freeze the authoritative audit inputs before schema/backfill work: FBNeo 277, MAME2003-Plus incremental 97, folded FBA2012 282, total 656 driver rows and 655 distinct byte contracts.
+- [ ] Freeze the authoritative audit inputs before schema/backfill work: FBNeo 277, MAME2003-Plus incremental 97, folded FBA2012 282, total 656 driver rows, 655 runtime/core-scoped contracts, and 654 global raw payload identities.
 - [ ] Include exact core/DAT/source provenance, alias folding, parent dependencies, normalized relation kind, and thumbnail mapping evidence. Call these manifests **hash-pinned**, not signed; `SHA256SUMS.txt` is the trust anchor and no public-key signature is claimed.
 - [ ] Copy only audited FBA2012 runtime core JS/WASM files whose hashes match the frozen manifest; never download a replacement at runtime.
 - [ ] Install the complete test foundation before feature tasks: pinned `playwright-core@1.58.2` without browser download, Vitest, Vue Test Utils, and a DOM test environment. Define `test:node`, `test:component`, and `test:browser` scripts; make `npm test` execute all three suites through a cross-platform runner.
 - [ ] Configure Vitest to include nested `test/components/**/*.test.js`; configure the browser runner to include `test/browser/**/*.spec.mjs`. Add a canary test proving each script discovers at least one intended test so nested suites cannot silently be skipped.
 - [ ] Force all generated ROMs, thumbnails, evidence, source extracts, and batch working files to paths outside the worktree. Add path-level ignores plus a staged-file guard that fails CI if forbidden assets enter Git.
-- [ ] Verify `656` unique selected rows, `655` contracts, relation totals `227 parent + 361 clone + 4 hack + 64 bootleg`, thumbnail totals `463 direct/alias + 53 parent + 140 source-reference`, and all five enabled core contracts.
+- [ ] Verify `656` unique selected rows, `655` runtime/core-scoped contracts, `654` global raw payload identities, relation totals `227 parent + 361 clone + 4 hack + 64 bootleg`, thumbnail totals `463 direct/alias + 53 parent + 140 source-reference`, and all five enabled core contracts.
 - [ ] Commit as `chore: freeze arcade import contracts`.
 
 ## Task 1: Expand-only schema and explicit migration orchestration
@@ -215,7 +215,7 @@
 - Create `test/import-rollback.test.js`
 
 - [ ] Write failing tests for path traversal rejection, global size+CRC lookup, deterministic ZIP names/content, split/standalone plans, alias collapse, thumbnail match kinds, dry-run, idempotency, and operation-log rollback.
-- [ ] Derive the immutable candidate manifest from Task 0: exactly 656 unique driver rows and 655 distinct byte contracts. Never replace it with the smaller publish subset.
+- [ ] Derive the immutable candidate manifest from Task 0: exactly 656 unique driver rows, 655 runtime/core-scoped contracts, and 654 global raw payload identities. Never replace it with the smaller publish subset.
 - [ ] Build normalized ZIPs from the 241 source ZIP byte pool, keep the encrypted source archive as cold source, and preserve all auxiliary folders plus the 35 save samples in batch evidence.
 - [ ] For all 98 split clones, record the exact parent build dependency, authorize both assets, and generate a two-ZIP runtime mount plan; standalone candidates must have no undeclared parent.
 - [ ] Convert 493 unique screenshots to content-addressed WebP; emit exactly 463 direct/alias, 53 parent, and 140 source-reference links, with zero missing display images.
@@ -243,7 +243,7 @@
 - [ ] Validate representative standalone and split builds across all five enabled cores, including two-ZIP parent/child mounting, before the full run.
 - [ ] Run all 656 candidates at conservative concurrency. Key each run by build fingerprint plus ROM/parent/core/BIOS hashes and the harness contract, not rehearsal database IDs. Retries append new runs, so raw validation-run count may exceed 656.
 - [ ] Raw validation outcomes are only `passed`, `failed`, or `inconclusive`; a timeout is a structured `failureCode`, while `unsupported` belongs to the candidate's static/final compatibility state rather than a browser-run outcome.
-- [ ] Resolve exactly one final candidate state from the append-only runs without deleting attempts. Assert 656 unique candidate-resolution rows, 655 contracts, no missing/duplicate/extra candidate, final-state totals summing to 656, thumbnail totals `463+53+140=656`, coverage of all five cores, and both split/standalone modes.
+- [ ] Resolve exactly one final candidate state from the append-only runs without deleting attempts. Assert 656 unique candidate-resolution rows, 655 runtime/core-scoped contracts, 654 global raw payload identities, no missing/duplicate/extra candidate, final-state totals summing to 656, thumbnail totals `463+53+140=656`, coverage of all five cores, and both split/standalone modes.
 - [ ] Persist all raw attempts as private evidence. Derive a separate publish manifest containing one selected active build per logical ROM where the candidate is `ready` and its accepted run is `passed`; never mutate or truncate the 656-row candidate manifest.
 - [ ] Gate deployment on IDs 1-7 being accepted, public, and startable. If any fails, keep the old release/DB live and fix or explicitly remove that release from scope before retrying.
 - [ ] Commit the harness and derivation code only; keep profiles/results/screenshots outside Git.
@@ -272,7 +272,7 @@
 - [ ] Toolbar remains visible and coin/start works for solo, host, and guest in real browser tests and production.
 - [ ] Gallery is visibly redesigned, handles 500+ cards, and every published variant has a truthful thumbnail match label.
 - [ ] All 241 source ZIPs and auxiliary files are retained in cold source/evidence; generated assets remain outside Git.
-- [ ] The candidate-resolution ledger contains exactly 656 rows and 655 byte contracts with a final compatibility status for every row; append-only validation attempts may exceed 656, and only selected builds with an accepted passed run are public.
+- [ ] The candidate-resolution ledger contains exactly 656 rows, 655 runtime/core-scoped contracts, and 654 global raw payload identities, with a final compatibility status for every row; append-only validation attempts may exceed 656, and only selected builds with an accepted passed run are public.
 - [ ] Existing IDs 1-7 remain public and startable with exact accepted fingerprints.
 - [ ] Every public ROM starts with its recorded core/build; split clones mount their exact parent; rooms and saves never cross builds.
 - [ ] Production is healthy, persistent, restart-safe, rollback-capable, and independently verified without harming other sites/services or opening a system download window.

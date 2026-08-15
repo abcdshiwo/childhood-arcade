@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "contractKind": "hash-pinned-authoritative-audit-inputs",
+  "signed": false,
+  "invariants": {
+    "candidateRows": 656,
+    "runtimeCoreScopedContracts": 655,
+    "globalRawPayloadIdentities": 654,
+    "relationTotals": {
+      "parent": 227,
+      "clone": 361,
+      "hack": 4,
+      "bootleg": 64
+    },
+    "thumbnailTotals": {
+      "direct-or-alias": 463,
+      "parent": 53,
+      "source-reference": 140
+    }
+  },
+  "inputs": [
+    {
+      "id": "fbneo:candidates",
+      "auditDirectory": "codex-w165-exact-audit-20260814-232215",
+      "file": "playable_driver_candidates.csv",
+      "sha256": "f96e1f1fa9d30f2c73fb4ba0f7627369bb3ecce3c95e49e22b3af4f7e666c280",
+      "rows": 277,
+      "role": "selected-driver-rows"
+    },
+    {
+      "id": "fbneo:layout",
+      "auditDirectory": "codex-w165-exact-audit-20260814-232215",
+      "file": "layout_analysis.json",
+      "sha256": "6c92355f6133b472607cfbe347d24b6d08ec5e2e47895adeef53d401cde8ebda",
+      "rows": 277,
+      "role": "parent-dependency-and-archive-layout"
+    },
+    {
+      "id": "fbneo:rebuild",
+      "auditDirectory": "codex-w165-exact-audit-20260814-232215",
+      "file": "rebuild_plan.csv",
+      "sha256": "afdb55bcd819e20221e40aa2010c48ed73df3d7dd12b4471fb41650a0089fdeb",
+      "rows": 3329,
+      "role": "required-output-member-contracts"
+    },
+    {
+      "id": "mame2003_plus:candidates",
+      "auditDirectory": "codex-w165-mame-audit-20260814-235802",
+      "file": "incremental_mame_ready.csv",
+      "sha256": "574aadeaa7dd605aea9f4ce9608e7cb0b689a5ab0a8f50e4296276a830d1444a",
+      "rows": 97,
+      "role": "selected-driver-rows"
+    },
+    {
+      "id": "mame2003_plus:rebuild",
+      "auditDirectory": "codex-w165-mame-audit-20260814-235802",
+      "file": "incremental_rebuild_plan.csv",
+      "sha256": "a4738f1740b867e0840054c38a71d2daae125457dc763520f47e0dd67ee60fd3",
+      "rows": 1808,
+      "role": "required-output-member-contracts"
+    },
+    {
+      "id": "mame2003_plus:core-provenance",
+      "auditDirectory": "codex-w165-mame-audit-20260814-235802",
+      "file": "core_provenance.json",
+      "sha256": "c187ed6ec8bc51b695c686195b86cba525196012bc2c6ae97d7d011068b1efba",
+      "role": "core-dat-source-provenance"
+    },
+    {
+      "id": "fba2012:candidates",
+      "auditDirectory": "codex-w165-fba2012-audit-20260815-011423",
+      "file": "delta_net_new_contract_vs_fbneo_mame.csv",
+      "sha256": "3663b8b5adbf7ab8d2ad3c13dbda67d1c5cd07d550d90b6b4fad892dc367eda3",
+      "rows": 282,
+      "role": "post-baseline-fold-selected-driver-rows"
+    },
+    {
+      "id": "fba2012:distinct-contracts",
+      "auditDirectory": "codex-w165-fba2012-audit-20260815-011423",
+      "file": "delta_distinct_contracts_vs_fbneo_mame.csv",
+      "sha256": "a38bb2c145accd7a34a6fce0947d1cb626740529410d50114f5686e5fd315073",
+      "rows": 281,
+      "role": "fba-size-crc-contract-fold-evidence"
+    },
+    {
+      "id": "fba2012:aliases",
+      "auditDirectory": "codex-w165-fba2012-audit-20260815-011423",
+      "file": "baseline_contract_aliases.csv",
+      "sha256": "70278dccc9ba86782d8c184c3c5698445364b414e6e86dce0171231d8fc043c1",
+      "rows": 22,
+      "role": "removed-byte-identical-baseline-aliases"
+    },
+    {
+      "id": "fba2012:core-inventory",
+      "auditDirectory": "codex-w165-fba2012-audit-20260815-011423",
+      "file": "core_inventory.csv",
+      "sha256": "1d9a4c4b9317a7ccfb46fad80d8bc8879a60fa0d64cee967fb8478638b4e8d14",
+      "role": "js-wasm-source-provenance"
+    },
+    {
+      "id": "fba2012:source-lock",
+      "auditDirectory": "codex-w165-fba2012-audit-20260815-011423",
+      "file": "source_lock_evidence.json",
+      "sha256": "5579c9cb49ca0ea1186f194f9967b876c956195b8328b7a76bc0904ea91d2a8d",
+      "role": "source-commit-lock-evidence"
+    },
+    {
+      "id": "thumbnails:coverage",
+      "auditDirectory": "codex-w165-variant-thumbnail-audit-20260814-final",
+      "file": "playable_277_thumbnail_coverage.csv",
+      "sha256": "45dc4c12d9c44d516e4227105087093f3f2c482c34ee8a43480b2a9e7ac2426b",
+      "rows": 277,
+      "role": "fbneo-thumbnail-match-evidence"
+    },
+    {
+      "id": "thumbnails:legacy-aliases",
+      "auditDirectory": "codex-w165-variant-thumbnail-audit-20260814-final",
+      "file": "legacy_alias_map_55.csv",
+      "sha256": "3413479e1bd01f04c2afdd9f14f049cd2b460461272b480de78e050cb599f6b2",
+      "rows": 55,
+      "role": "thumbnail-alias-evidence"
+    }
+  ]
+}
