@@ -848,7 +848,7 @@ test('contracted runtime still accepts the known baseline line-ending hash varia
   assert.ok(warnings.length >= 1)
 })
 
-test('Task 1 CLI exposes status/expand and fails closed for later phases', (t) => {
+test('migration CLI exposes status/expand/backfill and keeps Task 3 modes closed', (t) => {
   const { path } = openDatabase(t)
   const run = (mode) =>
     spawnSync(process.execPath, ['scripts/migrate-library.js', mode], {
@@ -867,7 +867,14 @@ test('Task 1 CLI exposes status/expand and fails closed for later phases', (t) =
   assert.equal(expand.status, 0, expand.stderr)
   assert.equal(JSON.parse(expand.stdout).phase, 'expanded')
 
-  for (const mode of ['backfill', 'contract', 'all']) {
+  const backfill = run('backfill')
+  assert.notEqual(backfill.status, 0, 'backfill without a manifest unexpectedly succeeded')
+  assert.match(
+    `${backfill.stdout}\n${backfill.stderr}`,
+    /LEGACY_LIBRARY_MANIFEST_PATH|--manifest/i,
+  )
+
+  for (const mode of ['contract', 'all']) {
     const result = run(mode)
     assert.notEqual(result.status, 0, `${mode} unexpectedly succeeded`)
     assert.match(`${result.stdout}\n${result.stderr}`, /not available until Task [23]/i)

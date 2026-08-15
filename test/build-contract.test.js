@@ -11,6 +11,7 @@ import {
 } from '../server/services/build-contract.js'
 
 const BASE_BUILD = Object.freeze({
+  logicalRomScope: 'legacy:rom:1',
   setNameNormalized: ' KOF97 ',
   coreArtifactFingerprint: 'A'.repeat(64),
   archiveSha256: 'B'.repeat(64),
@@ -23,6 +24,7 @@ const BASE_BUILD = Object.freeze({
 test('build fingerprints use one canonical normalized JSON representation', () => {
   const canonical = canonicalizeBuildFingerprint(BASE_BUILD)
   const expected = JSON.stringify({
+    logicalRomScope: 'legacy:rom:1',
     setNameNormalized: 'kof97',
     coreArtifactFingerprint: 'a'.repeat(64),
     archiveSha256: 'b'.repeat(64),
@@ -45,6 +47,7 @@ test('build fingerprints use one canonical normalized JSON representation', () =
       contentManifestSha256: 'c'.repeat(64),
       archiveSha256: 'b'.repeat(64),
       coreArtifactFingerprint: 'a'.repeat(64),
+      logicalRomScope: 'legacy:rom:1',
       setNameNormalized: 'kof97',
     }),
     computeBuildFingerprint(BASE_BUILD),
@@ -52,6 +55,13 @@ test('build fingerprints use one canonical normalized JSON representation', () =
 })
 
 test('build fingerprint canonicalization rejects incomplete or ambiguous identities', () => {
+  assert.throws(
+    () => {
+      const { logicalRomScope: _omitted, ...incomplete } = BASE_BUILD
+      return canonicalizeBuildFingerprint(incomplete)
+    },
+    /logicalRomScope/i,
+  )
   assert.throws(
     () => {
       const { archiveSha256: _omitted, ...incomplete } = BASE_BUILD
@@ -94,6 +104,7 @@ test('build fingerprint canonicalization rejects incomplete or ambiguous identit
 test('every build identity field participates in the fingerprint', () => {
   const baselineFingerprint = computeBuildFingerprint(BASE_BUILD)
   for (const changed of [
+    { logicalRomScope: 'legacy:rom:7' },
     { setNameNormalized: 'kof98' },
     { coreArtifactFingerprint: 'e'.repeat(64) },
     { archiveSha256: 'e'.repeat(64) },

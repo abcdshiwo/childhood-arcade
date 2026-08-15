@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const SET_NAME_PATTERN = /^[a-z0-9_]+$/
+const LOGICAL_ROM_SCOPE_PATTERN = /^[a-z0-9][a-z0-9:._/-]*$/
 const ARCHIVE_LAYOUTS = new Set(['standalone', 'split'])
 const STATIC_STATUSES = new Set(['complete', 'blocked', 'unsupported'])
 const VALIDATION_RESULTS = new Set(['passed', 'failed', 'inconclusive'])
@@ -30,11 +31,23 @@ function normalizedSetName(value) {
   return normalized
 }
 
+function normalizedLogicalRomScope(value) {
+  if (typeof value !== 'string') {
+    throw new TypeError('logicalRomScope must be a string')
+  }
+  const normalized = value.trim()
+  if (!LOGICAL_ROM_SCOPE_PATTERN.test(normalized)) {
+    throw new TypeError('logicalRomScope must be a stable lowercase scope key')
+  }
+  return normalized
+}
+
 export function canonicalizeBuildFingerprint(identity) {
   if (!identity || typeof identity !== 'object') {
     throw new TypeError('build identity must be an object')
   }
   for (const field of [
+    'logicalRomScope',
     'setNameNormalized',
     'coreArtifactFingerprint',
     'archiveSha256',
@@ -63,6 +76,7 @@ export function canonicalizeBuildFingerprint(identity) {
   }
 
   return JSON.stringify({
+    logicalRomScope: normalizedLogicalRomScope(identity.logicalRomScope),
     setNameNormalized: normalizedSetName(identity.setNameNormalized),
     coreArtifactFingerprint: normalizedSha256(
       identity.coreArtifactFingerprint,

@@ -14,23 +14,54 @@ import {
   readLibraryMigrationState,
   readMigrationLedger,
 } from '../server/db/migration-runner.js'
+import {
+  backfillLegacyLibrary,
+  stringifyLegacyBackfillEvidence,
+} from '../server/services/legacy-backfill.js'
 
 const MODES = new Set(['status', 'expand', 'backfill', 'contract', 'all'])
 
 function unavailable(mode) {
-  if (mode === 'backfill') {
-    throw new Error(
-      'backfill is not available until Task 2 installs the audited legacy backfill; no database changes were made',
-    )
-  }
   if (mode === 'contract') {
     throw new Error(
       'contract is not available until Task 3 installs the verified backup and contract runner; no destructive SQL was executed',
     )
   }
   throw new Error(
-    'all is not available until Task 2 backfill and Task 3 contract implementations are installed; run "status" or the safe "expand" mode only',
+    'all is not available until Task 3 installs the verified backup and contract runner; no destructive SQL was executed',
   )
+}
+
+function readOption(argv, name) {
+  const index = argv.indexOf(name)
+  if (index === -1) return undefined
+  const value = argv[index + 1]
+  if (!value || value.startsWith('--')) throw new Error(`${name} requires a value`)
+  return value
+}
+
+function parseArguments(argv) {
+  const [mode, ...options] = argv
+  const valueOptions = new Set(['--db', '--manifest', '--asset-root'])
+  for (let index = 0; index < options.length; index += 1) {
+    const argument = options[index]
+    if (argument === '--apply') continue
+    if (valueOptions.has(argument)) {
+      index += 1
+      continue
+    }
+    throw new Error(`unknown argument: ${argument}`)
+  }
+  if (options.includes('--apply') && mode !== 'backfill') {
+    throw new Error('--apply is supported only for backfill until Task 3 is installed')
+  }
+  return {
+    mode,
+    apply: options.includes('--apply'),
+    dbPath: readOption(options, '--db'),
+    manifestPath: readOption(options, '--manifest'),
+    assetRoot: readOption(options, '--asset-root'),
+  }
 }
 
 function statusPayload(sqlite, migrationsFolder) {
@@ -56,22 +87,37 @@ export function runLibraryMigrationCommand({
   mode,
   dbPath = process.env.DB_PATH || 'data/app.db',
   migrationsFolder = DEFAULT_MIGRATIONS_FOLDER,
+  manifestPath = process.env.LEGACY_LIBRARY_MANIFEST_PATH,
+  assetRoot = process.env.LIBRARY_ASSET_ROOT,
+  apply = false,
 } = {}) {
   if (!MODES.has(mode)) {
     throw new Error(`usage: node scripts/migrate-library.js ${[...MODES].join('|')}`)
   }
-  if (mode === 'backfill' || mode === 'contract' || mode === 'all') unavailable(mode)
+  if (mode === 'contract' || mode === 'all') unavailable(mode)
 
   const absoluteDbPath = resolve(dbPath)
   if (mode === 'expand') mkdirSync(dirname(absoluteDbPath), { recursive: true })
   const sqlite =
-    mode === 'status'
-      ? new Database(absoluteDbPath, { readonly: true, fileMustExist: true })
+    mode === 'status' || mode === 'backfill'
+      ? new Database(absoluteDbPath, {
+          readonly: mode === 'status' || !apply,
+          fileMustExist: true,
+        })
       : new Database(absoluteDbPath)
   try {
     if (mode === 'expand') {
       sqlite.pragma('foreign_keys = ON')
       expandLibraryDatabase(sqlite, { migrationsFolder })
+    }
+    if (mode === 'backfill') {
+      sqlite.pragma('foreign_keys = ON')
+      return backfillLegacyLibrary({
+        sqlite,
+        manifestPath,
+        assetRoot,
+        apply,
+      })
     }
     return statusPayload(sqlite, migrationsFolder)
   } finally {
@@ -80,10 +126,20 @@ export function runLibraryMigrationCommand({
 }
 
 export function main(argv = process.argv.slice(2)) {
-  const [mode] = argv
   try {
-    const result = runLibraryMigrationCommand({ mode })
-    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
+    const parsed = parseArguments(argv)
+    const result = runLibraryMigrationCommand({
+      ...parsed,
+      dbPath: parsed.dbPath ?? process.env.DB_PATH ?? 'data/app.db',
+      manifestPath:
+        parsed.manifestPath ?? process.env.LEGACY_LIBRARY_MANIFEST_PATH,
+      assetRoot: parsed.assetRoot ?? process.env.LIBRARY_ASSET_ROOT,
+    })
+    process.stdout.write(
+      parsed.mode === 'backfill'
+        ? stringifyLegacyBackfillEvidence(result)
+        : `${JSON.stringify(result, null, 2)}\n`,
+    )
     return 0
   } catch (error) {
     process.stderr.write(`[migrate-library] ${error.message}\n`)
