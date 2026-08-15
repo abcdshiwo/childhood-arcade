@@ -65,7 +65,7 @@ export function classifyArcadeStagedPath(inputPath) {
   const path = normalizePath(inputPath)
   const lowerPath = path.toLowerCase()
 
-  if (AUDITED_CORE_ARTIFACT_PATHS.has(lowerPath)) return null
+  if (AUDITED_CORE_ARTIFACT_PATHS.has(path)) return null
 
   if (lowerPath.startsWith('data/cores/') && /\.(?:js|wasm)$/i.test(lowerPath)) {
     return 'unaudited core artifact; only the six hash-pinned FBA2012 files are allowlisted'

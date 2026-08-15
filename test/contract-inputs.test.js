@@ -117,30 +117,35 @@ test('five hash-pinned core contracts retain exact artifact and source provenanc
   const expected = {
     fbalpha2012_cps1_028: {
       js: '1b6fcfecae9a029dc0ad6706af4e1163da6cfded3d92ec2e193fc711603ff590',
+      jsHashMode: 'raw',
       wasm: '021a05264877a9a1ea8c7722314513c2a1f23ab9491a2369b183b9788c524678',
       contract: '1c4308e91a967f9306e744dc906abafaf5101b4082eb9fb80ffdd20a21ce95aa',
       commit: '2499e30247da4d2535c2df886186e165cbff48e7',
     },
     fbalpha2012_cps2_028: {
       js: '28f5e5e47bb609aaba7ea1cd99270d8b8854c4e3dfd9a4213a083964e05e2627',
+      jsHashMode: 'raw',
       wasm: '67a5ff138215511cf9ab3af872d6499cf4b5a8bb1bae530cbceebd33c050f4e1',
       contract: '4d0d953871e18275862258562eaa6f55d9b633967669673787c13407a41b2636',
       commit: 'd618e992f33bc79d040f01e3b1589a05566725d9',
     },
     fbalpha2012_full_029: {
       js: 'eba6a6074eb6c86d3ac640a3ee716461da188fb35e32de5c3b76ee18d032b80a',
+      jsHashMode: 'raw',
       wasm: 'a19485f4060a3473c0229bd2bd4b68d5e13c1ecae65bb91728f7eaec3337afdb',
       contract: 'fb8d82fb3a222b1c5836af0a8cda09f9192dfa7cebe8448b4c5dc087e3e8ff93',
       commit: '77167cea72e808384c136c8c163a6b4975ce7a84',
     },
     'fbneo_1.0.0.03_2f41022': {
       js: 'cd8e329caa68e7125b1f70ff91129f97b2935745f5fbaa31ba4e3ab1bccd4697',
+      jsHashMode: 'lf-normalized-text',
       wasm: '7ad627b58de8832dbceb9c9b92c18e5ee198b87eb3ada95f4ac1aaa80755ef23',
       contract: 'e7b55931f73f458737d85aff0be1c516083ac8e0ee7ecd76068c864a8acba1c5',
       commit: '2f41022002337ed20186144bbddb2d53392fab85',
     },
     mame2003_plus_62c7089: {
       js: '6d7dc65e13c88837d6aa9757720b11446f09fa6d9b503b5a6e8ee6b8e873941e',
+      jsHashMode: 'lf-normalized-text',
       wasm: '47a47e9555426a04c023303434b432b8c6a70d8ab6a420fe7446e6d6e8c2546c',
       contract: 'e935b1343b39a85fd9e67914f7edfab28f55f4502751d33288397aabd33d6de9',
       commit: '62c7089644966f6ac5fc79fe03592603579a409d',
@@ -151,6 +156,7 @@ test('five hash-pinned core contracts retain exact artifact and source provenanc
     const pinned = expected[core.id]
     assert.ok(pinned, `unexpected core ${core.id}`)
     assert.equal(core.artifacts.js.sha256, pinned.js)
+    assert.equal(core.artifacts.js.hashMode, pinned.jsHashMode)
     assert.equal(core.artifacts.wasm.sha256, pinned.wasm)
     assert.equal(core.contract.sha256, pinned.contract)
     assert.equal(core.source.commit, pinned.commit)
@@ -313,6 +319,22 @@ test('staged-file guard allows audited metadata and cores but rejects runtime ar
   assert.ok(forbidden.every(({ reason }) => reason.length > 0))
 })
 
+test('staged-file guard rejects case variants of audited core paths', async () => {
+  const { findForbiddenArcadePaths } = await import(
+    '../scripts/check-arcade-staged-files.mjs'
+  )
+
+  const forbidden = findForbiddenArcadePaths([
+    'data/cores/FBALPHA2012.wasm',
+    'DATA/CORES/fbalpha2012_cps1.js',
+  ])
+  assert.deepEqual(
+    forbidden.map(({ path }) => path),
+    ['data/cores/FBALPHA2012.wasm', 'DATA/CORES/fbalpha2012_cps1.js'],
+  )
+  assert.ok(forbidden.every(({ reason }) => /unaudited core artifact/i.test(reason)))
+})
+
 test('gitignore keeps every arcade working and evidence path outside the index', async () => {
   const ignores = new Set(
     (await readFile(new URL('../.gitignore', import.meta.url), 'utf8'))
@@ -414,7 +436,7 @@ test('SHA256SUMS is the hash-pinned trust anchor and no signature is claimed', a
   }
 })
 
-test('hash-pinned manifest bytes retain LF line endings across Git checkouts', async () => {
+test('hash-pinned manifests and FBA JS retain exact bytes across Git checkouts', async () => {
   const attributes = await readFile(new URL('../.gitattributes', import.meta.url), 'utf8')
   const lines = new Set(
     attributes
@@ -424,7 +446,7 @@ test('hash-pinned manifest bytes retain LF line endings across Git checkouts', a
   )
   assert.ok(lines.has('tools/arcade-import/contracts/*.json text eol=lf'))
   assert.ok(lines.has('tools/arcade-import/contracts/SHA256SUMS.txt text eol=lf'))
-  assert.ok(lines.has('data/cores/fbalpha2012*.js -whitespace'))
+  assert.ok(lines.has('data/cores/fbalpha2012*.js -text -whitespace'))
 })
 
 test('design wording distinguishes runtime-scoped contracts from raw payload identity', async () => {

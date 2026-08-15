@@ -50,6 +50,13 @@ whose authoritative `supporting_cores` evidence contains only
 - `alias-folds.json` records the 22 byte-identical FBA-to-baseline aliases that
   were removed before selecting the 282 FBA rows.
 
+The six newly audited FBA2012 artifacts use raw SHA-256. Their generated JS is
+marked `-text -whitespace` in `.gitattributes`, so Git neither rewrites line
+endings nor treats the artifact's intentional whitespace as source formatting.
+The pre-existing FBNeo and MAME JS contracts remain explicitly
+`lf-normalized-text` legacy hashes; their WASM and every FBA JS/WASM hash are
+raw.
+
 The three FBA2012 core pairs are contract-enabled but remain
 `static-unverified`; contract enablement does not claim browser runtime
 acceptance. FBNeo and MAME rows likewise retain the validation status declared

@@ -3,4 +3,4 @@ tools/arcade-import/contracts/*.json text eol=lf
 tools/arcade-import/contracts/SHA256SUMS.txt text eol=lf
 
 # Preserve audited generated JS bytes; its intentional whitespace is hash-pinned.
-data/cores/fbalpha2012*.js -whitespace
+data/cores/fbalpha2012*.js -text -whitespace

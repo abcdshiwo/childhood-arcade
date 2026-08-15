@@ -82,7 +82,7 @@
         "js": {
           "path": "data/cores/fbalpha2012_cps1.js",
           "sha256": "1b6fcfecae9a029dc0ad6706af4e1163da6cfded3d92ec2e193fc711603ff590",
-          "hashMode": "lf-normalized-text"
+          "hashMode": "raw"
         },
         "wasm": {
           "path": "data/cores/fbalpha2012_cps1.wasm",
@@ -114,7 +114,7 @@
         "js": {
           "path": "data/cores/fbalpha2012_cps2.js",
           "sha256": "28f5e5e47bb609aaba7ea1cd99270d8b8854c4e3dfd9a4213a083964e05e2627",
-          "hashMode": "lf-normalized-text"
+          "hashMode": "raw"
         },
         "wasm": {
           "path": "data/cores/fbalpha2012_cps2.wasm",
@@ -146,7 +146,7 @@
         "js": {
           "path": "data/cores/fbalpha2012.js",
           "sha256": "eba6a6074eb6c86d3ac640a3ee716461da188fb35e32de5c3b76ee18d032b80a",
-          "hashMode": "lf-normalized-text"
+          "hashMode": "raw"
         },
         "wasm": {
           "path": "data/cores/fbalpha2012.wasm",
