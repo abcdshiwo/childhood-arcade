@@ -173,6 +173,19 @@ function topologicalRomRecords(records) {
         )
       }
       visit(parent)
+      if (
+        record.datParentSetName === null ||
+        record.datParentSetName !== parent.setNameNormalized
+      ) {
+        throw new Error(
+          `ROM ${record.romId} DAT parent ${record.datParentSetName ?? 'null'} does not match runtime parent set ${parent.setNameNormalized}`,
+        )
+      }
+      if (parent.archiveLayout !== 'standalone') {
+        throw new Error(
+          `ROM ${record.romId} runtime parent ${parent.romId} must be a standalone direct parent build`,
+        )
+      }
     }
     visiting.delete(record.romId)
     visited.add(record.romId)
@@ -280,18 +293,21 @@ function createPlan({
       mimeType: 'application/wasm',
       dryRun: !writeAssets,
     })
-    const dat = putSource(contentStore, core.artifacts.dat, manifestPath, {
-      kind: 'core_dat',
-      mimeType: 'text/plain',
-      dryRun: !writeAssets,
-    })
-    for (const item of [js, wasm, dat]) {
+    const dat =
+      core.artifacts.dat === null
+        ? null
+        : putSource(contentStore, core.artifacts.dat, manifestPath, {
+            kind: 'core_dat',
+            mimeType: 'text/plain',
+            dryRun: !writeAssets,
+          })
+    for (const item of [js, wasm, ...(dat ? [dat] : [])]) {
       rememberCreated(item.asset)
       addAsset(assets, item.asset, item.asset)
     }
 
     const biosMembers = []
-    for (const member of [...core.artifacts.bios].sort((left, right) =>
+    for (const member of [...(core.artifacts.bios ?? [])].sort((left, right) =>
       left.fileName.localeCompare(right.fileName, 'en'),
     )) {
       const stored = putSource(contentStore, member, manifestPath, {
@@ -307,23 +323,32 @@ function createPlan({
         sourcePath: stored.sourcePath,
       })
     }
-    const biosManifestBytes = Buffer.from(
-      canonicalizeLibraryJson(contractValidation.biosManifest.manifest),
-      'utf8',
-    )
-    const biosManifest = contentStore.putBytes({
-      bytes: biosManifestBytes,
-      expectedSha256: contractValidation.biosManifest.sha256,
-      expectedSize: biosManifestBytes.length,
-      hashMode: 'raw',
-      kind: 'bios_manifest',
-      dryRun: !writeAssets,
-    })
-    rememberCreated(biosManifest)
-    addAsset(assets, biosManifest, {
-      kind: 'bios_manifest',
-      mimeType: 'application/json',
-    })
+    let biosManifest = null
+    if (contractValidation.biosManifest) {
+      const biosManifestBytes = Buffer.from(
+        canonicalizeLibraryJson(contractValidation.biosManifest.manifest),
+        'utf8',
+      )
+      const storedBiosManifest = contentStore.putBytes({
+        bytes: biosManifestBytes,
+        expectedSha256: contractValidation.biosManifest.sha256,
+        expectedSize: biosManifestBytes.length,
+        hashMode: 'raw',
+        kind: 'bios_manifest',
+        dryRun: !writeAssets,
+      })
+      rememberCreated(storedBiosManifest)
+      addAsset(assets, storedBiosManifest, {
+        kind: 'bios_manifest',
+        mimeType: 'application/json',
+      })
+      biosManifest = {
+        ...storedBiosManifest,
+        kind: 'bios_manifest',
+        mimeType: 'application/json',
+        manifest: contractValidation.biosManifest.manifest,
+      }
+    }
 
     const plan = {
       contractId: core.id,
@@ -336,17 +361,12 @@ function createPlan({
       operatorProvenance: core.provenance ?? null,
       js: js.asset,
       wasm: wasm.asset,
-      dat: dat.asset,
-      biosManifest: {
-        ...biosManifest,
-        kind: 'bios_manifest',
-        mimeType: 'application/json',
-        manifest: contractValidation.biosManifest.manifest,
-      },
+      dat: dat?.asset ?? null,
+      biosManifest,
       biosMembers,
       jsProvenance: js.provenance,
       wasmProvenance: wasm.provenance,
-      datProvenance: dat.provenance,
+      datProvenance: dat?.provenance ?? null,
     }
     cores.push(plan)
     coreByContractId.set(core.id, plan)
@@ -397,7 +417,7 @@ function createPlan({
       contentManifestSha256,
       archiveLayout: record.archiveLayout,
       runtimeParentBuildFingerprint: parentPlan?.buildFingerprint ?? null,
-      biosManifestSha256: core.biosManifest.sha256,
+      biosManifestSha256: core.biosManifest?.sha256 ?? null,
     })
 
     let thumbnail = null
@@ -446,7 +466,7 @@ function createPlan({
         staticStatus: 'complete',
         acceptedResult: null,
       }),
-      biosManifestSha256: core.biosManifest.sha256,
+      biosManifestSha256: core.biosManifest?.sha256 ?? null,
       thumbnail,
     }
     builds.push(build)
@@ -484,11 +504,13 @@ function createPlan({
       operatorProvenance: core.operatorProvenance,
       js: sourceEvidence(core.js, core.jsProvenance),
       wasm: sourceEvidence(core.wasm, core.wasmProvenance),
-      dat: sourceEvidence(core.dat, core.datProvenance),
-      biosManifest: {
-        ...assetEvidence(core.biosManifest),
-        manifest: core.biosManifest.manifest,
-      },
+      dat: core.dat ? sourceEvidence(core.dat, core.datProvenance) : null,
+      biosManifest: core.biosManifest
+        ? {
+            ...assetEvidence(core.biosManifest),
+            manifest: core.biosManifest.manifest,
+          }
+        : null,
       biosMembers: core.biosMembers.map((member) => ({
         fileName: member.fileName,
         ...assetEvidence(member),
@@ -563,6 +585,52 @@ function emptyWrites() {
     savesUpdated: 0,
     phaseUpdated: 0,
     total: 0,
+  }
+}
+
+function summarizeDurability(durability) {
+  if (!durability) return null
+  return {
+    publishedFile: durability.publishedFile ?? null,
+    directoryMetadata: durability.directoryMetadata,
+    unsupportedDirectoryCount:
+      durability.unsupportedDirectories?.length ?? 0,
+  }
+}
+
+function emptyOperationalDurability() {
+  return {
+    schemaVersion: 1,
+    kind: 'legacy-library-backfill-operational-durability-v1',
+    lock: {
+      acquired: false,
+      publication: null,
+      release: null,
+    },
+    publishedObjects: [],
+  }
+}
+
+function appliedOperationalDurability({
+  lock,
+  releaseDurability,
+  createdObjects,
+}) {
+  return {
+    schemaVersion: 1,
+    kind: 'legacy-library-backfill-operational-durability-v1',
+    lock: {
+      acquired: true,
+      publication: summarizeDurability(lock.durability),
+      release: summarizeDurability(releaseDurability),
+    },
+    publishedObjects: [...createdObjects]
+      .sort((left, right) => left.filePath.localeCompare(right.filePath, 'en'))
+      .map((record) => ({
+        filePath: record.filePath,
+        sha256: record.sha256,
+        ...summarizeDurability(record.durability),
+      })),
   }
 }
 
@@ -894,10 +962,10 @@ function assertExpandedPlanCompatible(sqlite, plan) {
     for (const sha of [
       core.js.sha256,
       core.wasm.sha256,
-      core.dat.sha256,
-      core.biosManifest.sha256,
+      core.dat?.sha256 ?? null,
+      core.biosManifest?.sha256 ?? null,
       ...core.biosMembers.map((member) => member.sha256),
-    ]) {
+    ].filter(Boolean)) {
       if (!assetRowsBySha.has(sha)) {
         throw new Error(
           `core artifact ${core.artifactFingerprint} exists without planned asset ${sha}`,
@@ -1137,6 +1205,7 @@ export function backfillLegacyLibrary({
   manifestPath,
   assetRoot,
   apply = false,
+  contentStoreFactory = createContentStore,
 }) {
   assertSqlite(sqlite)
   if (typeof manifestPath !== 'string' || manifestPath.trim() === '') {
@@ -1144,6 +1213,9 @@ export function backfillLegacyLibrary({
   }
   if (typeof assetRoot !== 'string' || assetRoot.trim() === '') {
     throw new Error('LIBRARY_ASSET_ROOT or --asset-root is required')
+  }
+  if (typeof contentStoreFactory !== 'function') {
+    throw new TypeError('contentStoreFactory must be a function')
   }
   const state = readLibraryMigrationState(sqlite)
   if (!['expanded', 'backfilled'].includes(state.phase)) {
@@ -1158,7 +1230,7 @@ export function backfillLegacyLibrary({
   assertManifestRowsMatchDatabase(rows, loaded.manifest.roms)
   topologicalRomRecords(loaded.manifest.roms)
 
-  const contentStore = createContentStore({
+  const contentStore = contentStoreFactory({
     root: assetRoot,
     allowedSourceRoots: resolvedManifestSourceRoots(
       loaded.manifest,
@@ -1186,6 +1258,7 @@ export function backfillLegacyLibrary({
     plan: plan.evidence,
     noop: false,
     writes: apply ? writes : emptyWrites(),
+    operationalDurability: emptyOperationalDurability(),
   }
   if (state.phase === 'backfilled') {
     assertManifestRowsMatchDatabase(queryLegacyRoms(sqlite), plan.records)
@@ -1209,38 +1282,47 @@ export function backfillLegacyLibrary({
 
   if (!apply) return baseEvidence
 
+  const backfillLock = contentStore.acquireLegacyBackfillLock({
+    databasePath: sqlite.name ?? null,
+    manifestPath: loaded.manifestPath,
+  })
   const createdDuringPlanning = []
+  let lockReleaseDurability = null
   try {
-    const writtenPlan = createPlan({
-      manifest: loaded.manifest,
-      manifestPath: loaded.manifestPath,
-      validation: loaded.validation,
-      contentStore,
-      writeAssets: true,
-      createdObjects: createdDuringPlanning,
-    })
-    if (writtenPlan.evidence.digest !== plan.evidence.digest) {
-      throw new Error('legacy source or backfill plan changed before content publish')
+    try {
+      const writtenPlan = createPlan({
+        manifest: loaded.manifest,
+        manifestPath: loaded.manifestPath,
+        validation: loaded.validation,
+        contentStore,
+        writeAssets: true,
+        createdObjects: createdDuringPlanning,
+      })
+      if (writtenPlan.evidence.digest !== plan.evidence.digest) {
+        throw new Error('legacy source or backfill plan changed before content publish')
+      }
+      plan = writtenPlan
+      writes.filesystemCreated = plan.createdObjects.length
+      const revalidated = createPlan({
+        manifest: loaded.manifest,
+        manifestPath: loaded.manifestPath,
+        validation: loaded.validation,
+        contentStore,
+        writeAssets: false,
+      })
+      assertManifestRowsMatchDatabase(queryLegacyRoms(sqlite), loaded.manifest.roms)
+      if (revalidated.evidence.digest !== plan.evidence.digest) {
+        throw new Error('legacy source or backfill plan changed before database commit')
+      }
+      applyPlan(sqlite, plan, writes)
+    } catch (error) {
+      contentStore.cleanupCreated(createdDuringPlanning, {
+        isReferenced: ({ sha256 }) => assetIsReferencedBySha(sqlite, sha256),
+      })
+      throw error
     }
-    plan = writtenPlan
-    writes.filesystemCreated = plan.createdObjects.length
-    const revalidated = createPlan({
-      manifest: loaded.manifest,
-      manifestPath: loaded.manifestPath,
-      validation: loaded.validation,
-      contentStore,
-      writeAssets: false,
-    })
-    assertManifestRowsMatchDatabase(queryLegacyRoms(sqlite), loaded.manifest.roms)
-    if (revalidated.evidence.digest !== plan.evidence.digest) {
-      throw new Error('legacy source or backfill plan changed before database commit')
-    }
-    applyPlan(sqlite, plan, writes)
-  } catch (error) {
-    contentStore.cleanupCreated(createdDuringPlanning, {
-      isReferenced: ({ sha256 }) => assetIsReferencedBySha(sqlite, sha256),
-    })
-    throw error
+  } finally {
+    lockReleaseDurability = backfillLock.release()
   }
 
   finalizeWrites(writes)
@@ -1248,5 +1330,10 @@ export function backfillLegacyLibrary({
     ...baseEvidence,
     after: summary(sqlite),
     writes,
+    operationalDurability: appliedOperationalDurability({
+      lock: backfillLock,
+      releaseDurability: lockReleaseDurability,
+      createdObjects: createdDuringPlanning,
+    }),
   }
 }

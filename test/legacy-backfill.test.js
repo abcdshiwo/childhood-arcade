@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,7 +16,7 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 import Database from 'better-sqlite3'
 
@@ -174,6 +175,38 @@ function listContentFiles(root) {
   }
   visit(root)
   return result.sort()
+}
+
+function spawnLockContender({ assetRoot, sourceRoot }) {
+  const contentStoreUrl = pathToFileURL(
+    join(PROJECT_ROOT, 'server', 'services', 'content-store.js'),
+  ).href
+  const source = `
+    import { createContentStore } from ${JSON.stringify(contentStoreUrl)};
+    const store = createContentStore({
+      root: process.env.TEST_ASSET_ROOT,
+      allowedSourceRoots: [process.env.TEST_SOURCE_ROOT],
+    });
+    try {
+      const lock = store.acquireLegacyBackfillLock({ databasePath: 'contender.db' });
+      lock.release();
+      process.stdout.write('acquired');
+    } catch (error) {
+      process.stderr.write(error.message);
+      process.exitCode = 2;
+    }
+  `
+  return spawnSync(process.execPath, ['--input-type=module', '--eval', source], {
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      TEST_ASSET_ROOT: assetRoot,
+      TEST_SOURCE_ROOT: sourceRoot,
+    },
+    encoding: 'utf8',
+    timeout: 15_000,
+    windowsHide: true,
+  })
 }
 
 function snapshotLegacyData(sqlite) {
@@ -578,6 +611,165 @@ test('core fingerprint is immutable and covers every runtime dependency', () => 
       computeCoreArtifactFingerprint(identity),
     )
   }
+
+  const nonArcadeIdentity = coreIdentity({
+    coreName: 'nestopia',
+    displayVersion: 'v1',
+    sourceCommit: 'def',
+    jsSha256: '6'.repeat(64),
+    wasmSha256: '7'.repeat(64),
+    datSha256: null,
+    biosManifestSha256: null,
+  })
+  assert.equal(
+    computeCoreArtifactFingerprint(nonArcadeIdentity),
+    canonicalHash(nonArcadeIdentity),
+  )
+})
+
+test('non-arcade legacy ROMs backfill with explicit null DAT and BIOS dependencies', (t) => {
+  const fixture = makeFixture(t)
+  const files = {
+    js: {
+      path: join(fixture.sourceRoot, 'nestopia.js'),
+      bytes: Buffer.from('nestopia\r\ncore\r\n'),
+    },
+    wasm: {
+      path: join(fixture.sourceRoot, 'nestopia.wasm'),
+      bytes: Buffer.from([0, 97, 115, 109, 2]),
+    },
+    rom: {
+      path: join(fixture.sourceRoot, 'mario.nes'),
+      bytes: Buffer.from('nes rom bytes'),
+    },
+  }
+  for (const file of Object.values(files)) writeFileSync(file.path, file.bytes)
+
+  fixture.sqlite
+    .prepare(`
+      INSERT INTO roms
+        (id, user_id, title, platform, file_name, file_path, file_size,
+         is_public, parent_rom_id, version_label, status)
+      VALUES (9, 7, 'Mario', 'nes', 'mario.nes', ?, ?, 1, NULL, NULL, 1)
+    `)
+    .run(files.rom.path, files.rom.bytes.length)
+
+  const jsContract = fileContract(files.js.path, files.js.bytes, 'lf-normalized-text')
+  const wasmContract = fileContract(files.wasm.path, files.wasm.bytes)
+  const romContract = fileContract(files.rom.path, files.rom.bytes)
+  const artifactIdentity = coreIdentity({
+    coreName: 'nestopia',
+    displayVersion: 'v1 test',
+    sourceCommit: 'abc123',
+    jsSha256: jsContract.expectedSha256,
+    wasmSha256: wasmContract.expectedSha256,
+    datSha256: null,
+    biosManifestSha256: null,
+  })
+  const artifactFingerprint = canonicalHash(artifactIdentity)
+  const contentManifest = opaqueManifest({
+    archiveName: 'mario.nes',
+    archiveSize: romContract.expectedRawSize,
+    archiveSha256: romContract.expectedRawSha256,
+    parentFingerprint: null,
+  })
+  const contentManifestSha256 = canonicalHash(contentManifest)
+  const buildFingerprint = expectedBuildFingerprint(
+    buildIdentity({
+      romId: 9,
+      setNameNormalized: 'mario',
+      coreArtifactFingerprint: artifactFingerprint,
+      archiveSha256: romContract.expectedRawSha256,
+      contentManifestSha256,
+      archiveLayout: 'standalone',
+      runtimeParentBuildFingerprint: null,
+      biosManifestSha256: null,
+    }),
+  )
+
+  fixture.manifest.platformCoreContracts.nes = 'nestopia-test'
+  fixture.manifest.cores.push({
+    id: 'nestopia-test',
+    coreName: 'nestopia',
+    displayVersion: 'v1 test',
+    sourceCommit: 'abc123',
+    runtimeValidationStatus: 'runtime-validated',
+    enabled: true,
+    artifacts: {
+      js: jsContract,
+      wasm: wasmContract,
+      dat: null,
+      bios: null,
+    },
+    expectedBiosManifest: null,
+    expectedBiosManifestSha256: null,
+    expectedArtifactFingerprint: artifactFingerprint,
+    provenance: { contract: 'non-arcade fixture' },
+  })
+  fixture.manifest.roms.push({
+    romId: 9,
+    expectedLegacyRow: expectedLegacyRow(fixture.sqlite, 9),
+    coreContractId: 'nestopia-test',
+    setNameNormalized: 'mario',
+    variantKind: 'official',
+    datParentSetName: null,
+    familyRootSetName: 'mario',
+    versionLabel: null,
+    archiveLayout: 'standalone',
+    runtimeParentRomId: null,
+    source: {
+      ...romContract,
+      archiveName: 'mario.nes',
+      expectedContentManifest: contentManifest,
+      expectedContentManifestSha256: contentManifestSha256,
+    },
+  })
+  fixture.rewriteManifest()
+
+  const evidence = backfillLegacyLibrary({
+    sqlite: fixture.sqlite,
+    manifestPath: fixture.manifestPath,
+    assetRoot: fixture.assetRoot,
+    apply: true,
+  })
+
+  assert.equal(evidence.after.romCount, 3)
+  assert.equal(evidence.after.romsWithBuild, 3)
+  assert.equal(evidence.plan.romBuilds.every((build) => build.compatStatus === 'unverified'), true)
+  assert.equal(evidence.after.validationRunCount, 0)
+  assert.equal(evidence.after.acceptedValidationCount, 0)
+  const core = fixture.sqlite
+    .prepare(`
+      SELECT dat_asset_id, dat_sha256, bios_asset_id, bios_manifest_sha256,
+             artifact_fingerprint, provenance_json
+      FROM core_artifacts WHERE core_name = 'nestopia'
+    `)
+    .get()
+  assert.deepEqual(
+    {
+      dat_asset_id: core.dat_asset_id,
+      dat_sha256: core.dat_sha256,
+      bios_asset_id: core.bios_asset_id,
+      bios_manifest_sha256: core.bios_manifest_sha256,
+      artifact_fingerprint: core.artifact_fingerprint,
+    },
+    {
+      dat_asset_id: null,
+      dat_sha256: null,
+      bios_asset_id: null,
+      bios_manifest_sha256: null,
+      artifact_fingerprint: artifactFingerprint,
+    },
+  )
+  const provenance = JSON.parse(core.provenance_json)
+  assert.equal(provenance.artifacts.dat, null)
+  assert.equal(provenance.bios, null)
+  const build = fixture.sqlite
+    .prepare('SELECT build_fingerprint FROM rom_builds WHERE rom_id = 9')
+    .get()
+  assert.equal(build.build_fingerprint, buildFingerprint)
+  const plannedBuild = evidence.plan.romBuilds.find(({ romId }) => romId === 9)
+  assert.equal(plannedBuild.biosManifestSha256, null)
 })
 
 test('dry-run is byte-for-byte deterministic and performs zero filesystem or database writes', (t) => {
@@ -1052,7 +1244,7 @@ test('source symlinks that escape an allowed root fail closed when supported', (
   }
 })
 
-test('missing parent, parent cycle, and cross-core runtime parent fail before writes', (t) => {
+test('missing, mismatched, cyclic, and cross-core runtime parents fail before writes', (t) => {
   {
     const fixture = makeFixture(t)
     fixture.sqlite.prepare('UPDATE roms SET parent_rom_id = 999 WHERE id = 7').run()
@@ -1068,6 +1260,22 @@ test('missing parent, parent cycle, and cross-core runtime parent fail before wr
           apply: true,
         }),
       /missing.*parent|parent.*999/i,
+    )
+    assert.equal(existsSync(fixture.assetRoot), false)
+  }
+  {
+    const fixture = makeFixture(t)
+    fixture.manifest.roms[1].datParentSetName = 'wrong_parent'
+    fixture.rewriteManifest()
+    assert.throws(
+      () =>
+        backfillLegacyLibrary({
+          sqlite: fixture.sqlite,
+          manifestPath: fixture.manifestPath,
+          assetRoot: fixture.assetRoot,
+          apply: true,
+        }),
+      /DAT parent|set name|wrong_parent|direct parent/i,
     )
     assert.equal(existsSync(fixture.assetRoot), false)
   }
@@ -1159,6 +1367,255 @@ test('legacy UI parent grouping does not force a runtime parent for standalone b
     archive_layout: 'standalone',
     runtime_parent_build_id: null,
   })
+})
+
+test('a global backfill lock blocks another process before publication and is never stolen', (t) => {
+  const fixture = makeFixture(t)
+  const store = createContentStore({
+    root: fixture.assetRoot,
+    allowedSourceRoots: [fixture.sourceRoot],
+  })
+  const lock = store.acquireLegacyBackfillLock({
+    databasePath: fixture.dbPath,
+    manifestPath: fixture.manifestPath,
+    token: 'caller-must-not-control-lock-ownership',
+    pid: -1,
+    kind: 'caller-controlled-kind',
+  })
+  assert.equal(existsSync(lock.path), true)
+  const lockRecord = JSON.parse(readFileSync(lock.path, 'utf8'))
+  assert.equal(lockRecord.kind, 'legacy-library-backfill-lock-v1')
+  assert.equal(lockRecord.pid, process.pid)
+  assert.equal(lockRecord.token, lock.token)
+  assert.notEqual(lockRecord.token, 'caller-must-not-control-lock-ownership')
+  assert.throws(
+    () =>
+      store.acquireLegacyBackfillLock({
+        databasePath: fixture.dbPath,
+        manifestPath: fixture.manifestPath,
+      }),
+    /legacy.*backfill.*lock|already exists|active|stale/i,
+  )
+  assert.equal(existsSync(lock.path), true)
+
+  fixture.sqlite.close()
+  const contender = spawnSync(
+    process.execPath,
+    ['scripts/backfill-legacy-library.js', '--apply'],
+    {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...process.env,
+        DB_PATH: fixture.dbPath,
+        LEGACY_LIBRARY_MANIFEST_PATH: fixture.manifestPath,
+        LIBRARY_ASSET_ROOT: fixture.assetRoot,
+      },
+      encoding: 'utf8',
+      timeout: 15_000,
+      windowsHide: true,
+    },
+  )
+  assert.notEqual(contender.status, 0)
+  assert.match(
+    `${contender.stdout}\n${contender.stderr}`,
+    /legacy.*backfill.*lock|already exists|active|stale/i,
+  )
+  assert.equal(existsSync(lock.path), true)
+  assert.deepEqual(listContentFiles(fixture.assetRoot), [])
+
+  const inspection = new Database(fixture.dbPath, { readonly: true })
+  try {
+    assert.equal(readLibraryMigrationState(inspection).phase, 'expanded')
+    assert.equal(
+      inspection.prepare('SELECT COUNT(*) AS count FROM assets').get().count,
+      0,
+    )
+    assert.equal(
+      inspection.prepare('SELECT COUNT(*) AS count FROM rom_builds').get().count,
+      0,
+    )
+  } finally {
+    inspection.close()
+  }
+
+  lock.release()
+  assert.equal(existsSync(lock.path), false)
+
+  const staleContents = '{"owner":"stale operator lock"}\n'
+  writeFileSync(lock.path, staleContents)
+  assert.throws(
+    () =>
+      store.acquireLegacyBackfillLock({
+        databasePath: fixture.dbPath,
+        manifestPath: fixture.manifestPath,
+      }),
+    /legacy.*backfill.*lock|already exists|active|stale/i,
+  )
+  assert.equal(readFileSync(lock.path, 'utf8'), staleContents)
+})
+
+test('real backfill holds the global lock through database commit and failure cleanup', (t) => {
+  {
+    const fixture = makeFixture(t)
+    const lockPath = join(
+      fixture.assetRoot,
+      '.legacy-library-backfill.lock',
+    )
+    let commitObserved = 0
+    fixture.sqlite.function('verify_backfill_commit_lock', () => {
+      commitObserved += 1
+      assert.equal(existsSync(lockPath), true)
+      const contender = spawnLockContender(fixture)
+      assert.equal(contender.status, 2, contender.stderr)
+      assert.match(contender.stderr, /legacy.*backfill.*lock|already exists/i)
+      return 1
+    })
+    fixture.sqlite.exec(`
+      CREATE TRIGGER verify_backfill_commit_lock
+      BEFORE UPDATE OF phase ON library_migration_state
+      WHEN NEW.phase = 'backfilled'
+      BEGIN
+        SELECT verify_backfill_commit_lock();
+      END;
+    `)
+
+    backfillLegacyLibrary({
+      sqlite: fixture.sqlite,
+      manifestPath: fixture.manifestPath,
+      assetRoot: fixture.assetRoot,
+      apply: true,
+    })
+    assert.equal(commitObserved, 1)
+    assert.equal(existsSync(lockPath), false)
+  }
+
+  {
+    const fixture = makeFixture(t)
+    const lockPath = join(
+      fixture.assetRoot,
+      '.legacy-library-backfill.lock',
+    )
+    let cleanupObserved = 0
+    const contentStoreFactory = (options) => {
+      const store = createContentStore(options)
+      return Object.freeze({
+        ...store,
+        cleanupCreated(records, cleanupOptions) {
+          cleanupObserved += 1
+          assert.equal(existsSync(lockPath), true)
+          const contender = spawnLockContender(fixture)
+          assert.equal(contender.status, 2, contender.stderr)
+          assert.match(
+            contender.stderr,
+            /legacy.*backfill.*lock|already exists/i,
+          )
+          return store.cleanupCreated(records, cleanupOptions)
+        },
+      })
+    }
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_child_build_for_lock_test
+      BEFORE UPDATE OF active_build_id ON roms
+      WHEN NEW.id = 7
+      BEGIN
+        SELECT RAISE(ABORT, 'forced cleanup lock observation');
+      END;
+    `)
+
+    assert.throws(
+      () =>
+        backfillLegacyLibrary({
+          sqlite: fixture.sqlite,
+          manifestPath: fixture.manifestPath,
+          assetRoot: fixture.assetRoot,
+          apply: true,
+          contentStoreFactory,
+        }),
+      /forced cleanup lock observation/i,
+    )
+    assert.equal(cleanupObserved, 1)
+    assert.equal(existsSync(lockPath), false)
+    assert.deepEqual(listContentFiles(fixture.assetRoot), [])
+  }
+})
+
+test('operational durability exposes Windows directory-sync fallback without changing the plan digest', (t) => {
+  const fixture = makeFixture(t)
+  const descriptors = new Map()
+  let nextDescriptor = 1
+  const contentStoreFactory = (options) =>
+    createContentStore({
+      ...options,
+      durabilityOps: {
+        platform: 'win32',
+        openSync(path, flags) {
+          const descriptor = nextDescriptor++
+          descriptors.set(descriptor, { path, flags })
+          return descriptor
+        },
+        fsyncSync(descriptor) {
+          const { path } = descriptors.get(descriptor)
+          if (lstatSync(path).isDirectory()) {
+            const error = new Error(`directory fsync unsupported for ${path}`)
+            error.code = 'EPERM'
+            throw error
+          }
+        },
+        closeSync(descriptor) {
+          descriptors.delete(descriptor)
+        },
+      },
+    })
+
+  const dryRun = backfillLegacyLibrary({
+    sqlite: fixture.sqlite,
+    manifestPath: fixture.manifestPath,
+    assetRoot: fixture.assetRoot,
+    apply: false,
+    contentStoreFactory,
+  })
+  const applied = backfillLegacyLibrary({
+    sqlite: fixture.sqlite,
+    manifestPath: fixture.manifestPath,
+    assetRoot: fixture.assetRoot,
+    apply: true,
+    contentStoreFactory,
+  })
+
+  assert.equal(applied.plan.digest, dryRun.plan.digest)
+  assert.deepEqual(dryRun.operationalDurability, {
+    schemaVersion: 1,
+    kind: 'legacy-library-backfill-operational-durability-v1',
+    lock: {
+      acquired: false,
+      publication: null,
+      release: null,
+    },
+    publishedObjects: [],
+  })
+  assert.equal(applied.operationalDurability.lock.acquired, true)
+  assert.equal(
+    applied.operationalDurability.lock.publication.directoryMetadata,
+    'unsupported',
+  )
+  assert.ok(
+    applied.operationalDurability.lock.publication.unsupportedDirectoryCount >
+      0,
+  )
+  assert.equal(
+    applied.operationalDurability.lock.release.directoryMetadata,
+    'unsupported',
+  )
+  assert.ok(applied.operationalDurability.publishedObjects.length > 0)
+  assert.equal(
+    applied.operationalDurability.publishedObjects.every(
+      (entry) =>
+        entry.publishedFile === 'synced' &&
+        entry.directoryMetadata === 'unsupported' &&
+        entry.unsupportedDirectoryCount > 0,
+    ),
+    true,
+  )
 })
 
 test('transaction failure rolls back database and removes only newly-created unreferenced objects', (t) => {

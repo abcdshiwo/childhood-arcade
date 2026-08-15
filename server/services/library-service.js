@@ -30,7 +30,8 @@ function requiredString(value, field, { nullable = false } = {}) {
   return value
 }
 
-function requiredSha256(value, field) {
+function requiredSha256(value, field, { nullable = false } = {}) {
+  if (value === null && nullable) return null
   if (typeof value !== 'string' || !SHA256_PATTERN.test(value.toLowerCase())) {
     throw new TypeError(`${field} must be a 64-character SHA-256 hex string`)
   }
@@ -82,10 +83,13 @@ export function computeCoreArtifactFingerprint(identity) {
     sourceCommit: requiredString(identity.sourceCommit, 'sourceCommit'),
     jsSha256: requiredSha256(identity.jsSha256, 'jsSha256'),
     wasmSha256: requiredSha256(identity.wasmSha256, 'wasmSha256'),
-    datSha256: requiredSha256(identity.datSha256, 'datSha256'),
+    datSha256: requiredSha256(identity.datSha256, 'datSha256', {
+      nullable: true,
+    }),
     biosManifestSha256: requiredSha256(
       identity.biosManifestSha256,
       'biosManifestSha256',
+      { nullable: true },
     ),
   }
   return hashCanonicalLibraryJson(canonicalIdentity)
@@ -142,7 +146,7 @@ function validateExpectedLegacyRow(record) {
 function validateBiosManifest(core) {
   const bios = core.artifacts.bios
   if (!Array.isArray(bios) || bios.length === 0) {
-    throw new Error(`arcade core ${core.id} requires exact BIOS contracts`)
+    throw new Error(`core ${core.id} requires exact BIOS contracts when BIOS is configured`)
   }
   const names = new Set()
   for (const [index, member] of bios.entries()) {
@@ -213,15 +217,48 @@ function validateCoreContract(core, { arcadeRequired }) {
   validateFileContract(core.artifacts.wasm, `${core.id}.artifacts.wasm`, {
     allowedHashModes: new Set(['raw']),
   })
-  if (arcadeRequired) {
-    if (!core.artifacts.dat) {
+  if (!hasOwn(core.artifacts, 'dat')) {
+    if (arcadeRequired) {
       throw new Error(`arcade core ${core.id} requires an exact DAT contract`)
     }
+    throw new Error(`non-arcade core ${core.id} must explicitly declare artifacts.dat`)
+  }
+  if (core.artifacts.dat === null) {
+    if (arcadeRequired) {
+      throw new Error(`arcade core ${core.id} requires an exact DAT contract`)
+    }
+  } else {
     validateFileContract(core.artifacts.dat, `${core.id}.artifacts.dat`, {
       allowedHashModes: new Set(['raw']),
     })
   }
-  const biosManifest = arcadeRequired ? validateBiosManifest(core) : null
+  if (!hasOwn(core.artifacts, 'bios')) {
+    if (arcadeRequired) {
+      throw new Error(`arcade core ${core.id} requires exact BIOS contracts`)
+    }
+    throw new Error(`non-arcade core ${core.id} must explicitly declare artifacts.bios`)
+  }
+  let biosManifest = null
+  if (core.artifacts.bios === null) {
+    if (arcadeRequired) {
+      throw new Error(`arcade core ${core.id} requires exact BIOS contracts`)
+    }
+    if (
+      !hasOwn(core, 'expectedBiosManifest') ||
+      core.expectedBiosManifest !== null ||
+      !hasOwn(core, 'expectedBiosManifestSha256') ||
+      core.expectedBiosManifestSha256 !== null
+    ) {
+      throw new Error(
+        `non-arcade core ${core.id} without BIOS must explicitly pin null BIOS manifest identity`,
+      )
+    }
+  } else {
+    if (arcadeRequired && core.artifacts.bios.length === 0) {
+      throw new Error(`arcade core ${core.id} requires exact BIOS contracts`)
+    }
+    biosManifest = validateBiosManifest(core)
+  }
   const identity = {
     schemaVersion: 1,
     kind: 'core-artifact-v1',
@@ -230,8 +267,8 @@ function validateCoreContract(core, { arcadeRequired }) {
     sourceCommit: core.sourceCommit,
     jsSha256: core.artifacts.js.expectedSha256,
     wasmSha256: core.artifacts.wasm.expectedSha256,
-    datSha256: core.artifacts.dat?.expectedSha256,
-    biosManifestSha256: biosManifest?.sha256,
+    datSha256: core.artifacts.dat?.expectedSha256 ?? null,
+    biosManifestSha256: biosManifest?.sha256 ?? null,
   }
   const fingerprint = computeCoreArtifactFingerprint(identity)
   if (
@@ -499,7 +536,6 @@ function coreBiosMembers(plan, assetsBySha) {
 }
 
 function coreProvenance(plan, assetsBySha) {
-  const biosManifestAsset = assetsBySha.get(plan.biosManifest.sha256)
   return {
     schemaVersion: 1,
     kind: 'legacy-core-artifact-provenance-v1',
@@ -511,11 +547,13 @@ function coreProvenance(plan, assetsBySha) {
       wasm: plan.wasmProvenance,
       dat: plan.datProvenance,
     },
-    bios: {
-      manifestAssetId: biosManifestAsset.id,
-      manifestSha256: plan.biosManifest.sha256,
-      members: coreBiosMembers(plan, assetsBySha),
-    },
+    bios: plan.biosManifest
+      ? {
+          manifestAssetId: assetsBySha.get(plan.biosManifest.sha256).id,
+          manifestSha256: plan.biosManifest.sha256,
+          members: coreBiosMembers(plan, assetsBySha),
+        }
+      : null,
   }
 }
 
@@ -545,6 +583,14 @@ function assertCoreArtifactProvenance(row, plan, assetsBySha) {
   for (const name of ['js', 'wasm', 'dat']) {
     const actual = provenance.artifacts?.[name]
     const expected = plan[`${name}Provenance`]
+    if (expected === null) {
+      if (actual !== null) {
+        throw new Error(
+          `core artifact ${plan.artifactFingerprint} provenance conflicts at ${name}`,
+        )
+      }
+      continue
+    }
     for (const field of [
       'hashMode',
       'rawSha256',
@@ -574,11 +620,13 @@ function assertCoreArtifactProvenance(row, plan, assetsBySha) {
       )
     }
   }
-  const expectedBios = {
-    manifestAssetId: assetsBySha.get(plan.biosManifest.sha256).id,
-    manifestSha256: plan.biosManifest.sha256,
-    members: coreBiosMembers(plan, assetsBySha),
-  }
+  const expectedBios = plan.biosManifest
+    ? {
+        manifestAssetId: assetsBySha.get(plan.biosManifest.sha256).id,
+        manifestSha256: plan.biosManifest.sha256,
+        members: coreBiosMembers(plan, assetsBySha),
+      }
+    : null
   if (
     canonicalizeLibraryJson(provenance.bios) !==
     canonicalizeLibraryJson(expectedBios)
@@ -592,8 +640,10 @@ function assertCoreArtifactProvenance(row, plan, assetsBySha) {
 export function ensureCoreArtifactRecord(sqlite, plan, assetsBySha) {
   const jsAsset = assetsBySha.get(plan.js.sha256)
   const wasmAsset = assetsBySha.get(plan.wasm.sha256)
-  const datAsset = assetsBySha.get(plan.dat.sha256)
-  const biosManifestAsset = assetsBySha.get(plan.biosManifest.sha256)
+  const datAsset = plan.dat ? assetsBySha.get(plan.dat.sha256) : null
+  const biosManifestAsset = plan.biosManifest
+    ? assetsBySha.get(plan.biosManifest.sha256)
+    : null
   const identity = {
     core_name: plan.coreName,
     display_version: plan.displayVersion,
@@ -602,10 +652,10 @@ export function ensureCoreArtifactRecord(sqlite, plan, assetsBySha) {
     js_sha256: plan.js.sha256,
     wasm_asset_id: wasmAsset.id,
     wasm_sha256: plan.wasm.sha256,
-    dat_asset_id: datAsset.id,
-    dat_sha256: plan.dat.sha256,
-    bios_asset_id: biosManifestAsset.id,
-    bios_manifest_sha256: plan.biosManifest.sha256,
+    dat_asset_id: datAsset?.id ?? null,
+    dat_sha256: plan.dat?.sha256 ?? null,
+    bios_asset_id: biosManifestAsset?.id ?? null,
+    bios_manifest_sha256: plan.biosManifest?.sha256 ?? null,
     artifact_fingerprint: plan.artifactFingerprint,
     is_enabled: plan.enabled ? 1 : 0,
   }

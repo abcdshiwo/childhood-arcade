@@ -289,6 +289,196 @@ test('a writer never removes a content lock it did not acquire', (t) => {
   assert.equal(existsSync(lockPath), true)
 })
 
+test('published content syncs directory metadata from the object directory to newly-created parents', (t) => {
+  const { directory, root, source } = makeFixture(t)
+  const bytes = Buffer.from('durable payload')
+  const contentSha = sha256(bytes)
+  const target = join(root, 'sha256', contentSha.slice(0, 2), contentSha)
+  const calls = []
+  const descriptors = new Map()
+  let nextDescriptor = 1
+  const store = createContentStore({
+    root,
+    allowedSourceRoots: [directory],
+    durabilityOps: {
+      platform: 'linux',
+      openSync(path, flags) {
+        const descriptor = nextDescriptor++
+        descriptors.set(descriptor, path)
+        calls.push(['open', path, flags])
+        return descriptor
+      },
+      fsyncSync(descriptor) {
+        calls.push(['fsync', descriptors.get(descriptor)])
+      },
+      closeSync(descriptor) {
+        calls.push(['close', descriptors.get(descriptor)])
+        descriptors.delete(descriptor)
+      },
+    },
+  })
+  writeFileSync(source, bytes)
+
+  const result = store.putSource({
+    sourcePath: source,
+    expectedSha256: contentSha,
+    expectedSize: bytes.length,
+    hashMode: 'raw',
+    kind: 'rom',
+  })
+
+  assert.equal(result.absolutePath, target)
+  assert.deepEqual(
+    calls.filter(([operation]) => operation === 'open'),
+    [
+      ['open', join(root, 'sha256', contentSha.slice(0, 2)), 'r'],
+      ['open', join(root, 'sha256'), 'r'],
+      ['open', root, 'r'],
+      ['open', directory, 'r'],
+    ],
+  )
+  assert.equal(result.durability.directoryMetadata, 'synced')
+  assert.deepEqual(result.durability.unsupportedDirectories, [])
+})
+
+test('Windows reopens the published file and reports unsupported directory fsync explicitly', (t) => {
+  const { directory, root, source } = makeFixture(t)
+  const bytes = Buffer.from('windows durable payload')
+  const contentSha = sha256(bytes)
+  const target = join(root, 'sha256', contentSha.slice(0, 2), contentSha)
+  const calls = []
+  const descriptors = new Map()
+  let nextDescriptor = 1
+  const store = createContentStore({
+    root,
+    allowedSourceRoots: [directory],
+    durabilityOps: {
+      platform: 'win32',
+      openSync(path, flags) {
+        const descriptor = nextDescriptor++
+        descriptors.set(descriptor, path)
+        calls.push(['open', path, flags])
+        return descriptor
+      },
+      fsyncSync(descriptor) {
+        const path = descriptors.get(descriptor)
+        calls.push(['fsync', path])
+        if (path !== target) {
+          const error = new Error(`directory fsync unsupported for ${path}`)
+          error.code = 'EPERM'
+          throw error
+        }
+      },
+      closeSync(descriptor) {
+        calls.push(['close', descriptors.get(descriptor)])
+        descriptors.delete(descriptor)
+      },
+    },
+  })
+  writeFileSync(source, bytes)
+
+  const result = store.putSource({
+    sourcePath: source,
+    expectedSha256: contentSha,
+    expectedSize: bytes.length,
+    hashMode: 'raw',
+    kind: 'rom',
+  })
+
+  assert.deepEqual(calls[0], ['open', target, 'r+'])
+  assert.equal(result.durability.publishedFile, 'synced')
+  assert.equal(result.durability.directoryMetadata, 'unsupported')
+  assert.deepEqual(result.durability.unsupportedDirectories, [
+    join(root, 'sha256', contentSha.slice(0, 2)),
+    join(root, 'sha256'),
+    root,
+    directory,
+  ])
+})
+
+test('failed lock durability cleanup never removes a replacement lock it does not own', (t) => {
+  const { root } = makeFixture(t)
+  const lockPath = join(root, '.legacy-library-backfill.lock')
+  const replacement = '{"token":"replacement-owner"}\n'
+  const store = createContentStore({
+    root,
+    durabilityOps: {
+      platform: 'win32',
+      openSync(path) {
+        assert.equal(path, lockPath)
+        writeFileSync(lockPath, replacement)
+        const error = new Error('forced lock file durability failure')
+        error.code = 'EIO'
+        throw error
+      },
+      fsyncSync() {},
+      closeSync() {},
+    },
+  })
+
+  assert.throws(
+    () => store.acquireLegacyBackfillLock({ databasePath: 'fixture.db' }),
+    /fsync|durability|EIO/i,
+  )
+  assert.equal(existsSync(lockPath), true)
+  assert.equal(readFileSync(lockPath, 'utf8'), replacement)
+})
+
+test('POSIX lock durability reports its directly fsynced lock file truthfully', (t) => {
+  const { root } = makeFixture(t)
+  const store = createContentStore({
+    root,
+    durabilityOps: {
+      platform: 'linux',
+      openSync() {
+        return 123
+      },
+      fsyncSync() {},
+      closeSync() {},
+    },
+  })
+
+  const lock = store.acquireLegacyBackfillLock({ databasePath: 'fixture.db' })
+  assert.equal(lock.durability.publishedFile, 'synced')
+  lock.release()
+})
+
+test('POSIX directory fsync failures fail publication closed', (t) => {
+  const { directory, root, source } = makeFixture(t)
+  const bytes = Buffer.from('posix metadata failure')
+  const contentSha = sha256(bytes)
+  const store = createContentStore({
+    root,
+    allowedSourceRoots: [directory],
+    durabilityOps: {
+      platform: 'linux',
+      openSync() {
+        return 123
+      },
+      fsyncSync() {
+        const error = new Error('forced directory fsync failure')
+        error.code = 'EIO'
+        throw error
+      },
+      closeSync() {},
+    },
+  })
+  writeFileSync(source, bytes)
+
+  assert.throws(
+    () =>
+      store.putSource({
+        sourcePath: source,
+        expectedSha256: contentSha,
+        expectedSize: bytes.length,
+        hashMode: 'raw',
+        kind: 'rom',
+      }),
+    /fsync|durab|metadata|EIO/i,
+  )
+  assert.deepEqual(allFiles(root), [])
+})
+
 test('hash or size mismatch leaves no target or temporary file', (t) => {
   const { root, source, store } = makeFixture(t)
   const bytes = Buffer.from('payload')

@@ -25,6 +25,13 @@ import {
 
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
 const HASH_MODES = new Set(['raw', 'lf-normalized-text'])
+const WINDOWS_UNSUPPORTED_DIRECTORY_SYNC_CODES = new Set([
+  'EISDIR',
+  'EINVAL',
+  'ENOSYS',
+  'ENOTSUP',
+  'EPERM',
+])
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
@@ -141,11 +148,147 @@ function verifyExistingTarget(path, expected) {
   }
 }
 
-export function createContentStore({ root, allowedSourceRoots = [] }) {
+function collectMissingDirectories(directory) {
+  const missing = []
+  let cursor = directory
+  while (!existsSync(cursor)) {
+    missing.push(cursor)
+    const parent = dirname(cursor)
+    if (parent === cursor) break
+    cursor = parent
+  }
+  return missing.reverse()
+}
+
+function normalizeDurabilityOps(durabilityOps = {}) {
+  const normalized = {
+    platform: durabilityOps.platform ?? process.platform,
+    openSync: durabilityOps.openSync ?? openSync,
+    fsyncSync: durabilityOps.fsyncSync ?? fsyncSync,
+    closeSync: durabilityOps.closeSync ?? closeSync,
+  }
+  if (typeof normalized.platform !== 'string') {
+    throw new TypeError('durabilityOps.platform must be a string')
+  }
+  for (const name of ['openSync', 'fsyncSync', 'closeSync']) {
+    if (typeof normalized[name] !== 'function') {
+      throw new TypeError(`durabilityOps.${name} must be a function`)
+    }
+  }
+  return normalized
+}
+
+function syncOpenedPath(path, flags, durabilityOps) {
+  const descriptor = durabilityOps.openSync(path, flags)
+  try {
+    durabilityOps.fsyncSync(descriptor)
+  } finally {
+    durabilityOps.closeSync(descriptor)
+  }
+}
+
+function metadataSyncDirectories(destinationDirectory, createdDirectories) {
+  const paths = [destinationDirectory]
+  for (const directory of [...createdDirectories].reverse()) {
+    const parent = dirname(directory)
+    if (!paths.includes(parent)) paths.push(parent)
+  }
+  return paths
+}
+
+function syncDirectoryMetadata({
+  destinationDirectory,
+  createdDirectories,
+  durabilityOps,
+}) {
+  const windows = durabilityOps.platform === 'win32'
+  const unsupportedDirectories = []
+  for (const directory of metadataSyncDirectories(
+    destinationDirectory,
+    createdDirectories,
+  )) {
+    try {
+      syncOpenedPath(directory, windows ? 'r+' : 'r', durabilityOps)
+    } catch (error) {
+      if (
+        windows &&
+        WINDOWS_UNSUPPORTED_DIRECTORY_SYNC_CODES.has(error?.code)
+      ) {
+        unsupportedDirectories.push(directory)
+        continue
+      }
+      throw new Error(
+        `failed to fsync published content directory metadata at ${directory}: ${error.message}`,
+        { cause: error },
+      )
+    }
+  }
+  return unsupportedDirectories
+}
+
+function syncPublishedContentMetadata({
+  publishedPath,
+  destinationDirectory,
+  createdDirectories,
+  durabilityOps,
+  preSyncedPublishedFile = 'temp-fsynced-before-rename',
+}) {
+  const windows = durabilityOps.platform === 'win32'
+  let publishedFile = preSyncedPublishedFile
+  if (windows) {
+    try {
+      syncOpenedPath(publishedPath, 'r+', durabilityOps)
+      publishedFile = 'synced'
+    } catch (error) {
+      throw new Error(
+        `failed to fsync published content file ${publishedPath}: ${error.message}`,
+        { cause: error },
+      )
+    }
+  }
+
+  const unsupportedDirectories = syncDirectoryMetadata({
+    destinationDirectory,
+    createdDirectories,
+    durabilityOps,
+  })
+
+  return {
+    publishedFile,
+    directoryMetadata:
+      unsupportedDirectories.length === 0 ? 'synced' : 'unsupported',
+    unsupportedDirectories,
+  }
+}
+
+function removeOwnedLegacyBackfillLock(lockPath, token) {
+  if (!existsSync(lockPath)) return false
+  let current
+  try {
+    current = JSON.parse(readFileSync(lockPath, 'utf8'))
+  } catch {
+    return false
+  }
+  if (
+    current?.kind !== 'legacy-library-backfill-lock-v1' ||
+    current?.token !== token
+  ) {
+    return false
+  }
+  unlinkSync(lockPath)
+  return true
+}
+
+export function createContentStore({
+  root,
+  allowedSourceRoots = [],
+  durabilityOps: durabilityOverrides = {},
+}) {
   if (typeof root !== 'string' || root.trim() === '') {
     throw new TypeError('content-store root is required')
   }
   const absoluteRoot = resolve(root)
+  const durabilityOps = normalizeDurabilityOps(durabilityOverrides)
   if (!Array.isArray(allowedSourceRoots)) {
     throw new TypeError('allowedSourceRoots must be an array')
   }
@@ -192,7 +335,15 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
     return absolutePath
   }
 
-  function resultFor({ expected, kind, absolutePath, created, existing, dryRun }) {
+  function resultFor({
+    expected,
+    kind,
+    absolutePath,
+    created,
+    existing,
+    dryRun,
+    durability = null,
+  }) {
     return {
       kind,
       sha256: expected.sha256,
@@ -202,6 +353,7 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
       created,
       existing,
       wouldCreate: dryRun ? !existing : false,
+      durability,
     }
   }
 
@@ -235,6 +387,7 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
     }
 
     const destinationDirectory = dirname(absolutePath)
+    const createdDirectories = collectMissingDirectories(destinationDirectory)
     mkdirSync(destinationDirectory, { recursive: true })
     assertNoLinks(absoluteRoot, absolutePath)
 
@@ -270,6 +423,12 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
       renameSync(temporaryPath, absolutePath)
       published = true
       verifyExistingTarget(absolutePath, expected)
+      const durability = syncPublishedContentMetadata({
+        publishedPath: absolutePath,
+        destinationDirectory,
+        createdDirectories,
+        durabilityOps,
+      })
       return resultFor({
         expected,
         kind,
@@ -277,6 +436,7 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
         created: true,
         existing: false,
         dryRun: false,
+        durability,
       })
     } catch (error) {
       if (error?.code === 'EEXIST' && existsSync(absolutePath)) {
@@ -391,6 +551,108 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
     return removed
   }
 
+  function acquireLegacyBackfillLock(metadata = {}) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      throw new TypeError('legacy backfill lock metadata must be an object')
+    }
+    const createdDirectories = collectMissingDirectories(absoluteRoot)
+    mkdirSync(absoluteRoot, { recursive: true })
+    assertNoLinks(absoluteRoot, absoluteRoot)
+
+    const lockPath = join(absoluteRoot, '.legacy-library-backfill.lock')
+    const token = randomBytes(24).toString('hex')
+    const lockRecord = {
+      databasePath: metadata.databasePath ?? null,
+      manifestPath: metadata.manifestPath ?? null,
+      schemaVersion: 1,
+      kind: 'legacy-library-backfill-lock-v1',
+      token,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+    }
+    let descriptor = null
+    let acquired = false
+    try {
+      descriptor = openSync(lockPath, 'wx')
+      acquired = true
+      writeFileSync(descriptor, `${JSON.stringify(lockRecord)}\n`, 'utf8')
+      fsyncSync(descriptor)
+    } catch (error) {
+      if (descriptor !== null) {
+        try {
+          closeSync(descriptor)
+        } catch {}
+        descriptor = null
+      }
+      if (acquired) {
+        try {
+          removeOwnedLegacyBackfillLock(lockPath, token)
+        } catch {}
+      }
+      if (error?.code === 'EEXIST') {
+        throw new Error(
+          `legacy backfill lock already exists at ${lockPath}; treat it as active or stale and inspect it manually`,
+          { cause: error },
+        )
+      }
+      throw error
+    } finally {
+      if (descriptor !== null) closeSync(descriptor)
+    }
+
+    let durability
+    try {
+      durability = syncPublishedContentMetadata({
+        publishedPath: lockPath,
+        destinationDirectory: absoluteRoot,
+        createdDirectories,
+        durabilityOps,
+        preSyncedPublishedFile: 'synced',
+      })
+    } catch (error) {
+      removeOwnedLegacyBackfillLock(lockPath, token)
+      throw error
+    }
+
+    let released = false
+    let releaseDurability = null
+    return Object.freeze({
+      path: lockPath,
+      token,
+      durability,
+      release() {
+        if (released) return releaseDurability
+        let current
+        try {
+          current = JSON.parse(readFileSync(lockPath, 'utf8'))
+        } catch (error) {
+          throw new Error(
+            `legacy backfill lock ${lockPath} disappeared or became unreadable; refusing to remove it`,
+            { cause: error },
+          )
+        }
+        if (current?.token !== token) {
+          throw new Error(
+            `legacy backfill lock ${lockPath} is no longer owned by this process; refusing to remove it`,
+          )
+        }
+        unlinkSync(lockPath)
+        const unsupportedDirectories = syncDirectoryMetadata({
+          destinationDirectory: absoluteRoot,
+          createdDirectories: [],
+          durabilityOps,
+        })
+        releaseDurability = {
+          directoryMetadata:
+            unsupportedDirectories.length === 0 ? 'synced' : 'unsupported',
+          unsupportedDirectories,
+        }
+        released = true
+        return releaseDurability
+      },
+    })
+  }
+
   return Object.freeze({
     root: absoluteRoot,
     allowedSourceRoots: Object.freeze([...absoluteSourceRoots]),
@@ -398,5 +660,6 @@ export function createContentStore({ root, allowedSourceRoots = [] }) {
     putSource,
     putBytes,
     cleanupCreated,
+    acquireLegacyBackfillLock,
   })
 }
