@@ -6,11 +6,14 @@
       :platform="platformInfo"
       :core-name="coreDisplayName[platformInfo.core] || platformInfo.core"
       :can-save="isAuthed && !isGuestMode"
+      :can-toggle-crt="isArcade"
+      :crt-enabled="crtEnabled"
       @back="goBack"
       @fullscreen="onFullscreen"
       @keys="showInput = true"
       @save-state="onSaveState"
       @load-state="onLoadState"
+      @toggle-crt="toggleCrt"
     >
       <template #extras>
         <!-- Version switcher: only when this game has multi-version siblings -->
@@ -47,6 +50,8 @@
         <EmulatorPortal
           v-if="rom && biosReady && !authLoading && (!isRoomMode || isHostMode)"
           ref="portalRef"
+          class="crt-display"
+          :class="{ 'crt-enabled': crtEnabled }"
           :core="platformInfo.core"
           :core-js-url="platformInfo.coreJsUrl"
           :core-wasm-url="platformInfo.coreWasmUrl"
@@ -58,7 +63,11 @@
         />
 
         <!-- Guest (or role not yet determined in a room): remote video stream -->
-        <div v-else-if="isRoomMode" class="guest-view">
+        <div
+          v-else-if="isRoomMode"
+          class="guest-view crt-display"
+          :class="{ 'crt-enabled': crtEnabled }"
+        >
           <video
             ref="remoteVideoRef"
             class="remote-video"
@@ -188,6 +197,8 @@ const isMuted = ref(true)
 const connectionStatus = ref('建立连接…')
 const booted = ref(false)
 const loadingSlow = ref(false)
+const CRT_STORAGE_KEY = 'player:crt:arcade'
+const crtEnabled = ref(false)
 let slowTimer = null
 
 // Room mode
@@ -202,6 +213,27 @@ const roomInfo = ref(null)
 const isHostMode = computed(() => isRoomMode && !!signalMe.value?.isHost)
 const isGuestMode = computed(() => isRoomMode && signalMe.value && !signalMe.value.isHost)
 const canGuestPlay = computed(() => roomInfo.value?.allowPlay !== false)
+const isArcade = computed(() => romMeta.value?.platform === 'arcade')
+
+watch(isArcade, (arcade) => {
+  if (!arcade) {
+    crtEnabled.value = false
+    return
+  }
+  try {
+    crtEnabled.value = localStorage.getItem(CRT_STORAGE_KEY) === '1'
+  } catch {
+    crtEnabled.value = false
+  }
+}, { immediate: true })
+
+function toggleCrt() {
+  if (!isArcade.value) return
+  crtEnabled.value = !crtEnabled.value
+  try {
+    localStorage.setItem(CRT_STORAGE_KEY, crtEnabled.value ? '1' : '0')
+  } catch {}
+}
 
 // WebRTC
 let rtc = null
@@ -748,6 +780,41 @@ onBeforeUnmount(() => {
 }
 .emu-frame { width: 100%; height: 100%; position: relative; overflow: hidden; }
 
+.crt-display {
+  isolation: isolate;
+}
+.crt-display.crt-enabled :deep(.portal-canvas),
+.guest-view.crt-display.crt-enabled .remote-video {
+  filter: contrast(1.08) saturate(1.1) brightness(0.96);
+}
+.crt-display.crt-enabled::before,
+.crt-display.crt-enabled::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.crt-display.crt-enabled::before {
+  background: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 2px,
+    rgba(0, 0, 0, 0.26) 2px,
+    rgba(0, 0, 0, 0.26) 3px
+  );
+  opacity: 0.52;
+}
+.crt-display.crt-enabled::after {
+  background: radial-gradient(
+    ellipse at center,
+    transparent 55%,
+    rgba(0, 0, 0, 0.12) 76%,
+    rgba(0, 0, 0, 0.46) 100%
+  );
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.32);
+}
+
 .guest-view {
   position: absolute; inset: 0;
   display: flex; align-items: center; justify-content: center;
@@ -766,6 +833,7 @@ onBeforeUnmount(() => {
   background: rgba(0,0,0,0.6);
   color: #fff;
   backdrop-filter: blur(6px);
+  z-index: 4;
 }
 .guest-waiting p { margin: 0; font-size: 14px; }
 .guest-waiting .muted { font-size: 11px; color: rgba(255,255,255,0.5); letter-spacing: 0.08em; }

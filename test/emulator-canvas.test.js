@@ -367,3 +367,22 @@ test('save state client and Player scope cloud and local saves to the immutable 
   assert.match(player, /legacySaveDecisionKey/)
   assert.match(player, /window\.confirm/)
 })
+
+test('arcade CRT preference controls both local canvas and guest video without rebooting', async () => {
+  const [player, overlay] = await Promise.all([
+    readFile(new URL('../src/views/Player.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/emulator-portal/GameOverlay.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(player, /const CRT_STORAGE_KEY = ['"]player:crt:arcade['"]/)
+  assert.match(player, /localStorage\.getItem\(CRT_STORAGE_KEY\) === ['"]1['"]/)
+  assert.match(player, /localStorage\.setItem\(CRT_STORAGE_KEY, crtEnabled\.value \? ['"]1['"] : ['"]0['"]\)/)
+  assert.match(player, /:can-toggle-crt="isArcade"/)
+  assert.match(player, /@toggle-crt="toggleCrt"/)
+  assert.match(player, /EmulatorPortal[\s\S]*'crt-enabled': crtEnabled/)
+  assert.match(player, /guest-view[\s\S]*'crt-enabled': crtEnabled/)
+  assert.match(player, /\.crt-display\.crt-enabled::before[\s\S]*repeating-linear-gradient/)
+  assert.match(player, /\.crt-display\.crt-enabled::after[\s\S]*radial-gradient/)
+  assert.match(player, /pointer-events:\s*none/)
+  assert.match(overlay, /aria-pressed="crtEnabled"/)
+})

@@ -16,6 +16,19 @@
 
     <slot name="extras" />
 
+    <button
+      v-if="canToggleCrt"
+      class="bar-btn bar-btn-crt"
+      :class="{ active: crtEnabled }"
+      data-testid="crt-toggle"
+      :aria-label="crtEnabled ? '关闭 CRT 滤镜' : '开启 CRT 滤镜'"
+      :aria-pressed="crtEnabled"
+      :title="crtEnabled ? '关闭 CRT 滤镜' : '开启 CRT 滤镜'"
+      @click="$emit('toggle-crt')"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+      <span class="bar-btn-label">CRT</span>
+    </button>
     <button v-if="canSave" class="bar-btn" @click="$emit('save-state')" aria-label="存档" title="快速存档">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
     </button>
@@ -38,8 +51,10 @@ defineProps({
   platform: { type: Object, required: true },
   coreName: String,
   canSave: { type: Boolean, default: true },
+  canToggleCrt: { type: Boolean, default: false },
+  crtEnabled: { type: Boolean, default: false },
 })
-defineEmits(['back', 'fullscreen', 'keys', 'save-state', 'load-state'])
+defineEmits(['back', 'fullscreen', 'keys', 'save-state', 'load-state', 'toggle-crt'])
 
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -169,6 +184,15 @@ const canFullscreen = hasFs && !isIOS
 }
 .bar-btn-accent:hover {
   background: color-mix(in srgb, var(--accent) 32%, transparent);
+  color: #fff;
+}
+.bar-btn-crt.active {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
+  color: var(--accent);
+}
+.bar-btn-crt.active:hover {
+  background: color-mix(in srgb, var(--accent) 34%, transparent);
   color: #fff;
 }
 
