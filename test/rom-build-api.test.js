@@ -1,0 +1,728 @@
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import test, { after } from 'node:test'
+
+import Database from 'better-sqlite3'
+import { Hono } from 'hono'
+
+import {
+  applyMigrationEntries,
+  loadMigrationManifest,
+} from '../server/db/migration-runner.js'
+import { contractLibraryDatabase } from '../server/db/contract-runner.js'
+
+const sha256 = (value) => createHash('sha256').update(value).digest('hex')
+const fixtureDirectory = mkdtempSync(join(tmpdir(), 'rom-build-api-'))
+const databasePath = join(fixtureDirectory, 'app.db')
+const assetRoot = join(fixtureDirectory, 'library-assets')
+
+process.env.DB_PATH = databasePath
+process.env.LIBRARY_ASSET_ROOT = assetRoot
+process.env.MAX_UPLOAD_BYTES = '8'
+
+let fixture
+fixture = await createFixture()
+
+const [{ romRoutes, romBuildRoutes }, { coreRoutes }, { biosRoutes }, { adminRoutes }] =
+  await Promise.all([
+    import('../server/routes/roms.js'),
+    import('../server/routes/cores.js'),
+    import('../server/routes/bios.js'),
+    import('../server/routes/admin.js'),
+  ])
+
+const app = new Hono()
+app.route('/api/roms', romRoutes)
+app.route('/api/rom-builds', romBuildRoutes ?? new Hono())
+app.route('/api/cores', coreRoutes)
+app.route('/api/bios', biosRoutes)
+app.route('/api/admin', adminRoutes)
+
+const { db } = await import('../server/db/index.js')
+
+after(() => {
+  db.$client?.close?.()
+  rmSync(fixtureDirectory, { recursive: true, force: true })
+})
+
+function assetPath(sha) {
+  return join(assetRoot, 'sha256', sha.slice(0, 2), sha)
+}
+
+function addAsset(sqlite, { id, kind, bytes, mimeType = 'application/octet-stream' }) {
+  const buffer = Buffer.from(bytes)
+  const sha = sha256(buffer)
+  const filePath = `sha256/${sha.slice(0, 2)}/${sha}`
+  const absolutePath = assetPath(sha)
+  mkdirSync(dirname(absolutePath), { recursive: true })
+  writeFileSync(absolutePath, buffer)
+  sqlite.prepare(`
+    INSERT INTO assets (id, kind, file_path, mime_type, file_size, sha256)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, kind, filePath, mimeType, buffer.length, sha)
+  return { id, bytes: buffer, sha, filePath, fileSize: buffer.length, mimeType }
+}
+
+function insertRom(sqlite, {
+  id,
+  userId = 1,
+  title,
+  setName,
+  isPublic,
+  parentRomId = null,
+  versionLabel = null,
+  variantKind = null,
+}) {
+  sqlite.prepare(`
+    INSERT INTO roms
+      (id, user_id, title, platform, file_name, file_path, file_size,
+       is_public, parent_rom_id, set_name_normalized, variant_kind,
+       dat_parent_set_name, family_root_set_name, version_label, status,
+       created_at, updated_at)
+    VALUES (?, ?, ?, 'arcade', ?, ?, 999999, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+  `).run(
+    id,
+    userId,
+    title,
+    `${setName}.zip`,
+    `legacy/${setName}.zip`,
+    isPublic ? 1 : 0,
+    parentRomId,
+    setName,
+    variantKind,
+    parentRomId ? 'parent' : null,
+    parentRomId ? 'parent' : setName,
+    versionLabel,
+    id,
+    id,
+  )
+}
+
+function insertBuild(sqlite, {
+  id,
+  romId,
+  coreArtifactId,
+  archive,
+  layout = 'standalone',
+  parentBuildId = null,
+  acceptedResult = null,
+}) {
+  const buildFingerprint = sha256(`build:${id}`)
+  sqlite.prepare(`
+    INSERT INTO rom_builds
+      (id, rom_id, core_artifact_id, archive_asset_id, archive_sha256,
+       content_manifest_sha256, build_fingerprint, static_status,
+       archive_layout, runtime_parent_build_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, ?)
+  `).run(
+    id,
+    romId,
+    coreArtifactId,
+    archive.id,
+    archive.sha,
+    sha256(`manifest:${id}`),
+    buildFingerprint,
+    layout,
+    parentBuildId,
+  )
+  sqlite.prepare('UPDATE roms SET active_build_id = ? WHERE id = ?').run(id, romId)
+  if (acceptedResult) {
+    sqlite.prepare(`
+      INSERT INTO build_validation_runs
+        (rom_build_id, browser_sha256, harness_version,
+         core_artifact_fingerprint, result, acceptance, accepted_at,
+         accepted_by, policy_version)
+      VALUES (?, ?, 'test-harness', ?, ?, 'accepted', unixepoch(), 3, 'test-v1')
+    `).run(
+      id,
+      sha256(`browser:${id}`),
+      fixture.coreFingerprints.get(coreArtifactId),
+      acceptedResult,
+    )
+  }
+  return { id, buildFingerprint }
+}
+
+async function createFixture() {
+  const sqlite = new Database(databasePath)
+  const manifest = loadMigrationManifest()
+  applyMigrationEntries(sqlite, manifest.slice(0, 2), { manifestEntries: manifest })
+  sqlite.prepare("UPDATE library_migration_state SET phase = 'backfilled' WHERE id = 1").run()
+  sqlite.close()
+
+  await contractLibraryDatabase({
+    dbPath: databasePath,
+    backupPath: join(fixtureDirectory, 'pre-contract.sqlite'),
+  })
+
+  const contracted = new Database(databasePath)
+  contracted.pragma('foreign_keys = ON')
+  contracted.exec(`
+    INSERT INTO users (id, username, password_hash, role, status)
+    VALUES
+      (1, 'owner', 'hash', 'user', 1),
+      (2, 'stranger', 'hash', 'user', 1),
+      (3, 'admin', 'hash', 'admin', 1);
+
+    INSERT INTO sessions (user_id, token, expires_at)
+    VALUES
+      (1, 'owner-token', unixepoch() + 3600),
+      (2, 'stranger-token', unixepoch() + 3600),
+      (3, 'admin-token', unixepoch() + 3600);
+
+    INSERT INTO settings (key, value) VALUES ('guestPlayEnabled', '0');
+  `)
+
+  const fbneoJs = addAsset(contracted, {
+    id: 1,
+    kind: 'core_js',
+    bytes: 'fbneo-js',
+    mimeType: 'application/javascript',
+  })
+  const fbneoWasm = addAsset(contracted, {
+    id: 2,
+    kind: 'core_wasm',
+    bytes: 'fbneo-wasm',
+    mimeType: 'application/wasm',
+  })
+  const mameJs = addAsset(contracted, {
+    id: 3,
+    kind: 'core_js',
+    bytes: 'mame-js',
+    mimeType: 'application/javascript',
+  })
+  const mameWasm = addAsset(contracted, {
+    id: 4,
+    kind: 'core_wasm',
+    bytes: 'mame-wasm',
+    mimeType: 'application/wasm',
+  })
+  const biosMember = addAsset(contracted, {
+    id: 5,
+    kind: 'bios',
+    bytes: 'exact-neogeo-bios',
+    mimeType: 'application/zip',
+  })
+  const biosManifest = addAsset(contracted, {
+    id: 6,
+    kind: 'bios_manifest',
+    bytes: JSON.stringify({ members: [{ fileName: 'neogeo.zip', sha256: biosMember.sha }] }),
+    mimeType: 'application/json',
+  })
+  const thumbnail = addAsset(contracted, {
+    id: 7,
+    kind: 'thumbnail',
+    bytes: 'webp-thumbnail',
+    mimeType: 'image/webp',
+  })
+
+  const coreFingerprints = new Map([
+    [10, sha256('core:fbneo')],
+    [20, sha256('core:mame')],
+  ])
+
+  contracted.prepare(`
+    INSERT INTO core_artifacts
+      (id, core_name, display_version, source_commit, js_asset_id, js_sha256,
+       wasm_asset_id, wasm_sha256, dat_asset_id, dat_sha256, bios_asset_id,
+       bios_manifest_sha256, artifact_fingerprint, provenance_json, is_enabled)
+    VALUES
+      (10, 'fbneo', '1.0.0.03', 'fbneo-commit', ?, ?, ?, ?, NULL, NULL,
+       NULL, NULL, ?, '{}', 1),
+      (20, 'mame2003_plus', '62c7089', 'mame-commit', ?, ?, ?, ?, NULL, NULL,
+       ?, ?, ?, ?, 1)
+  `).run(
+    fbneoJs.id,
+    fbneoJs.sha,
+    fbneoWasm.id,
+    fbneoWasm.sha,
+    coreFingerprints.get(10),
+    mameJs.id,
+    mameJs.sha,
+    mameWasm.id,
+    mameWasm.sha,
+    biosManifest.id,
+    biosManifest.sha,
+    coreFingerprints.get(20),
+    JSON.stringify({
+      bios: {
+        manifestAssetId: biosManifest.id,
+        manifestSha256: biosManifest.sha,
+        members: [{
+          fileName: 'neogeo.zip',
+          assetId: biosMember.id,
+          sha256: biosMember.sha,
+          fileSize: biosMember.fileSize,
+          mimeType: biosMember.mimeType,
+        }],
+      },
+    }),
+  )
+
+  const archiveById = new Map()
+  for (const [id, bytes] of [
+    [20, 'parent-rom'],
+    [21, 'child-rom'],
+    [22, 'unverified-rom'],
+    [23, 'private-rom'],
+    [24, 'stranger-rom'],
+    [25, 'retired-room-rom'],
+    [26, 'current-room-rom'],
+    [27, 'retired-hidden-rom'],
+    [28, 'delete-rom'],
+  ]) {
+    archiveById.set(id, addAsset(contracted, { id, kind: 'rom', bytes }))
+  }
+
+  const result = {
+    sqlite: contracted,
+    coreFingerprints,
+    core: { fbneoJs, fbneoWasm, mameJs, mameWasm, biosMember, biosManifest },
+    thumbnail,
+    archiveById,
+  }
+  fixture = result
+
+  insertRom(contracted, {
+    id: 101,
+    title: 'Ready Parent',
+    setName: 'parent',
+    isPublic: true,
+  })
+  insertBuild(contracted, {
+    id: 1001,
+    romId: 101,
+    coreArtifactId: 20,
+    archive: archiveById.get(20),
+    acceptedResult: 'passed',
+  })
+
+  insertRom(contracted, {
+    id: 102,
+    title: 'Ready Split Clone',
+    setName: 'child',
+    isPublic: true,
+    parentRomId: 101,
+    versionLabel: 'Clone',
+    variantKind: 'official',
+  })
+  insertBuild(contracted, {
+    id: 1002,
+    romId: 102,
+    coreArtifactId: 20,
+    archive: archiveById.get(21),
+    layout: 'split',
+    parentBuildId: 1001,
+    acceptedResult: 'passed',
+  })
+
+  insertRom(contracted, {
+    id: 103,
+    title: 'Public Flag But Unverified',
+    setName: 'unverified',
+    isPublic: true,
+  })
+  insertBuild(contracted, {
+    id: 1003,
+    romId: 103,
+    coreArtifactId: 10,
+    archive: archiveById.get(22),
+  })
+
+  insertRom(contracted, {
+    id: 104,
+    title: 'Private Unverified',
+    setName: 'private',
+    isPublic: false,
+  })
+  insertBuild(contracted, {
+    id: 1004,
+    romId: 104,
+    coreArtifactId: 10,
+    archive: archiveById.get(23),
+  })
+
+  insertRom(contracted, {
+    id: 105,
+    userId: 2,
+    title: 'Other Private',
+    setName: 'other_private',
+    isPublic: false,
+  })
+  insertBuild(contracted, {
+    id: 1005,
+    romId: 105,
+    coreArtifactId: 10,
+    archive: archiveById.get(24),
+  })
+
+  insertRom(contracted, {
+    id: 106,
+    title: 'Room Locked Build',
+    setName: 'room_game',
+    isPublic: false,
+  })
+  insertBuild(contracted, {
+    id: 1006,
+    romId: 106,
+    coreArtifactId: 10,
+    archive: archiveById.get(25),
+  })
+  insertBuild(contracted, {
+    id: 1008,
+    romId: 106,
+    coreArtifactId: 10,
+    archive: archiveById.get(27),
+  })
+  insertBuild(contracted, {
+    id: 1007,
+    romId: 106,
+    coreArtifactId: 10,
+    archive: archiveById.get(26),
+  })
+  contracted.prepare(`
+    INSERT INTO rooms
+      (code, host_user_id, rom_id, rom_build_id, name, is_public,
+       allow_play, status, closed_at)
+    VALUES ('LOCKED', 1, 106, 1006, 'Locked Room', 0, 1, 1, NULL)
+  `).run()
+
+  insertRom(contracted, {
+    id: 107,
+    title: 'Disposable',
+    setName: 'disposable',
+    isPublic: false,
+  })
+  insertBuild(contracted, {
+    id: 1009,
+    romId: 107,
+    coreArtifactId: 10,
+    archive: archiveById.get(28),
+  })
+
+  insertRom(contracted, {
+    id: 108,
+    title: 'Shared BIOS Bytes',
+    setName: 'shared_bios_bytes',
+    isPublic: false,
+  })
+  insertBuild(contracted, {
+    id: 1010,
+    romId: 108,
+    coreArtifactId: 10,
+    archive: biosMember,
+  })
+
+  contracted.prepare(`
+    INSERT INTO rom_asset_refs
+      (id, rom_id, asset_id, match_kind, source_set_name, source_file_sha256)
+    VALUES (2001, 101, ?, 'exact', 'parent', ?)
+  `).run(thumbnail.id, thumbnail.sha)
+  contracted.prepare('UPDATE roms SET active_thumbnail_ref_id = 2001 WHERE id = 101').run()
+  contracted.close()
+  return result
+}
+
+function authHeaders(token, headers = {}) {
+  return token ? { cookie: `session=${token}`, ...headers } : headers
+}
+
+async function request(path, { token, method = 'GET', body, headers = {} } = {}) {
+  const options = { method, headers: authHeaders(token, headers) }
+  if (body !== undefined) {
+    if (body instanceof FormData) options.body = body
+    else {
+      options.headers['content-type'] = 'application/json'
+      options.body = JSON.stringify(body)
+    }
+  }
+  return app.request(path, options)
+}
+
+async function json(path, options) {
+  const response = await request(path, options)
+  return { response, data: await response.json() }
+}
+
+test('public listing exposes only accepted ready active builds with exact metadata', async () => {
+  const { response, data } = await json('/api/roms/public')
+  assert.equal(response.status, 200)
+  assert.deepEqual(data.roms.map((rom) => rom.id), [102, 101])
+
+  const parent = data.roms.find((rom) => rom.id === 101)
+  assert.equal(parent.setName, 'parent')
+  assert.equal(parent.buildId, 1001)
+  assert.equal(parent.coreName, 'mame2003_plus')
+  assert.equal(parent.coreVersion, '62c7089')
+  assert.equal(parent.compatStatus, 'ready')
+  assert.equal(parent.archiveLayout, 'standalone')
+  assert.equal(parent.fileName, 'parent.zip')
+  assert.equal(parent.fileSize, fixture.archiveById.get(20).fileSize)
+  assert.equal('filePath' in parent, false, 'legacy disk paths must never be serialized')
+  assert.equal(parent.activeBuild.id, 1001)
+  assert.equal(parent.activeBuild.core.artifactFingerprint, fixture.coreFingerprints.get(20))
+  assert.match(parent.thumbnailUrl, new RegExp(`\\?v=${fixture.thumbnail.sha}$`))
+  assert.equal(parent.thumbnailMatchKind, 'exact')
+})
+
+test('owners and admins can see private unverified builds while strangers cannot', async () => {
+  const mine = await json('/api/roms/mine', { token: 'owner-token' })
+  assert.equal(mine.response.status, 200)
+  const privateRom = mine.data.roms.find((rom) => rom.id === 104)
+  assert.equal(privateRom.compatStatus, 'unverified')
+  assert.equal(privateRom.buildId, 1004)
+  assert.equal(privateRom.isPublic, false)
+
+  const denied = await request('/api/rom-builds/1004', { token: 'stranger-token' })
+  assert.equal(denied.status, 403)
+
+  const admin = await json('/api/admin/roms', { token: 'admin-token' })
+  assert.equal(admin.response.status, 200)
+  const adminPrivate = admin.data.roms.find((rom) => rom.id === 104)
+  assert.equal(adminPrivate.compatStatus, 'unverified')
+  assert.equal(adminPrivate.activeBuild.id, 1004)
+})
+
+test('split build resolution returns exact parent then child archives', async () => {
+  const { response, data } = await json('/api/rom-builds/1002', {
+    token: 'stranger-token',
+  })
+  assert.equal(response.status, 200)
+  assert.deepEqual(
+    data.build.archives.map(({ buildId, role, fileName }) => ({ buildId, role, fileName })),
+    [
+      { buildId: 1001, role: 'parent', fileName: 'parent.zip' },
+      { buildId: 1002, role: 'primary', fileName: 'child.zip' },
+    ],
+  )
+  assert.match(data.build.archives[0].url, /^\/api\/rom-builds\/1001\/file\/parent\.zip\?forBuild=1002$/)
+  assert.match(data.build.archives[1].url, /^\/api\/rom-builds\/1002\/file\/child\.zip\?forBuild=1002$/)
+
+  const parentResponse = await request(data.build.archives[0].url, {
+    token: 'stranger-token',
+  })
+  assert.equal(parentResponse.status, 200)
+  assert.deepEqual(Buffer.from(await parentResponse.arrayBuffer()), fixture.archiveById.get(20).bytes)
+})
+
+test('build-addressed files authorize the active build and reject guessed retired builds', async () => {
+  const privateFile = await request('/api/rom-builds/1004/file/private.zip?forBuild=1004', {
+    token: 'owner-token',
+  })
+  assert.equal(privateFile.status, 200)
+  assert.deepEqual(Buffer.from(await privateFile.arrayBuffer()), fixture.archiveById.get(23).bytes)
+
+  const stranger = await request('/api/rom-builds/1004/file/private.zip?forBuild=1004', {
+    token: 'stranger-token',
+  })
+  assert.equal(stranger.status, 403)
+
+  const retired = await request('/api/rom-builds/1008/file/room_game.zip?forBuild=1008', {
+    token: 'owner-token',
+  })
+  assert.equal(retired.status, 404)
+})
+
+test('a room host can still read the exact retired build locked by an open room', async () => {
+  const { response, data } = await json('/api/rom-builds/1006', {
+    token: 'owner-token',
+  })
+  assert.equal(response.status, 200)
+  assert.equal(data.build.id, 1006)
+  const file = await request(data.build.archives[0].url, { token: 'owner-token' })
+  assert.equal(file.status, 200)
+  assert.deepEqual(Buffer.from(await file.arrayBuffer()), fixture.archiveById.get(25).bytes)
+
+  const denied = await request('/api/rom-builds/1006', { token: 'stranger-token' })
+  assert.equal(denied.status, 404)
+})
+
+test('core and BIOS artifact URLs are pinned to the build artifact and content hashes', async () => {
+  const { data } = await json('/api/rom-builds/1002', { token: 'owner-token' })
+  const { core } = data.build
+  assert.equal(core.name, 'mame2003_plus')
+  assert.equal(core.artifactFingerprint, fixture.coreFingerprints.get(20))
+  assert.match(core.jsUrl, new RegExp(`/api/cores/${core.artifactFingerprint}/${fixture.core.mameJs.sha}/mame2003_plus\\.js$`))
+  assert.match(core.wasmUrl, new RegExp(`/api/cores/${core.artifactFingerprint}/${fixture.core.mameWasm.sha}/mame2003_plus\\.wasm$`))
+  assert.match(core.bios[0].url, new RegExp(`/api/bios/${core.artifactFingerprint}/${fixture.core.biosMember.sha}/neogeo\\.zip$`))
+
+  const jsResponse = await request(core.jsUrl)
+  assert.equal(jsResponse.status, 200)
+  assert.deepEqual(Buffer.from(await jsResponse.arrayBuffer()), fixture.core.mameJs.bytes)
+  assert.equal(jsResponse.headers.get('cache-control'), 'public, max-age=31536000, immutable')
+
+  const biosResponse = await request(core.bios[0].url)
+  assert.equal(biosResponse.status, 200)
+  assert.deepEqual(Buffer.from(await biosResponse.arrayBuffer()), fixture.core.biosMember.bytes)
+
+  const wrongHash = await request(core.jsUrl.replace(fixture.core.mameJs.sha, 'f'.repeat(64)))
+  assert.equal(wrongHash.status, 404)
+})
+
+test('normal upload creates one private unverified logical ROM, asset, and manual build', async () => {
+  const form = new FormData()
+  form.set('title', 'Manual Upload')
+  form.set('platform', 'arcade')
+  form.set('isPublic', 'true')
+  form.set('file', new Blob(['zip!'], { type: 'application/zip' }), 'manual.zip')
+
+  const { response, data } = await json('/api/roms/upload', {
+    method: 'POST',
+    token: 'owner-token',
+    body: form,
+  })
+  assert.equal(response.status, 200)
+  assert.equal(data.isPublic, false)
+  assert.equal(data.compatStatus, 'unverified')
+  assert.equal(data.coreName, 'fbneo', 'server platform policy selects the default artifact')
+  assert.equal(data.archiveLayout, 'standalone')
+  assert.equal(data.activeBuild.archives.length, 1)
+  assert.equal('filePath' in data, false)
+
+  const sqlite = db.$client
+  const rom = sqlite.prepare('SELECT * FROM roms WHERE id = ?').get(data.id)
+  const build = sqlite.prepare('SELECT * FROM rom_builds WHERE id = ?').get(data.buildId)
+  const asset = sqlite.prepare('SELECT * FROM assets WHERE id = ?').get(build.archive_asset_id)
+  assert.equal(rom.active_build_id, build.id)
+  assert.equal(rom.is_public, 0)
+  assert.equal(build.static_status, 'complete')
+  assert.equal(build.archive_layout, 'standalone')
+  assert.equal(asset.sha256, sha256('zip!'))
+  assert.deepEqual(readFileSync(assetPath(asset.sha256)), Buffer.from('zip!'))
+})
+
+test('ordinary HTTP upload retains its configured size limit', async () => {
+  const form = new FormData()
+  form.set('title', 'Too Large')
+  form.set('platform', 'arcade')
+  form.set('file', new Blob(['123456789']), 'too_large.zip')
+
+  const response = await request('/api/roms/upload', {
+    method: 'POST',
+    token: 'owner-token',
+    body: form,
+  })
+  assert.equal(response.status, 413)
+  assert.equal(
+    db.$client.prepare("SELECT COUNT(*) AS n FROM roms WHERE set_name_normalized = 'too_large'").get().n,
+    0,
+  )
+})
+
+test('an unverified active build cannot be made public', async () => {
+  const { response, data } = await json('/api/roms/104', {
+    method: 'PATCH',
+    token: 'owner-token',
+    body: { isPublic: true },
+  })
+  assert.equal(response.status, 409)
+  assert.match(data.error, /验证|ready|公开/i)
+  assert.equal(db.$client.prepare('SELECT is_public FROM roms WHERE id = 104').get().is_public, 0)
+})
+
+test('soft delete and restore preserve the active immutable build', async () => {
+  const deleted = await json('/api/roms/107', {
+    method: 'DELETE',
+    token: 'owner-token',
+  })
+  assert.equal(deleted.response.status, 200)
+  assert.equal(deleted.data.mode, 'soft')
+
+  const trash = await json('/api/roms/trash', { token: 'owner-token' })
+  const trashed = trash.data.roms.find((rom) => rom.id === 107)
+  assert.equal(trashed.buildId, 1009)
+  assert.equal(trashed.compatStatus, 'unverified')
+
+  const hiddenFile = await request('/api/rom-builds/1009/file/disposable.zip?forBuild=1009', {
+    token: 'owner-token',
+  })
+  assert.equal(hiddenFile.status, 404)
+
+  const restored = await request('/api/roms/107/restore', {
+    method: 'POST',
+    token: 'owner-token',
+  })
+  assert.equal(restored.status, 200)
+  assert.equal(db.$client.prepare('SELECT active_build_id FROM roms WHERE id = 107').get().active_build_id, 1009)
+})
+
+test('hard delete rejects builds referenced by runtime children or rooms', async () => {
+  const runtimeParent = await json('/api/roms/101?permanent=1', {
+    method: 'DELETE',
+    token: 'owner-token',
+  })
+  assert.equal(runtimeParent.response.status, 409)
+  assert.match(runtimeParent.data.error, /引用|构建|build/i)
+
+  const roomLocked = await json('/api/roms/106?permanent=1', {
+    method: 'DELETE',
+    token: 'owner-token',
+  })
+  assert.equal(roomLocked.response.status, 409)
+  assert.match(roomLocked.data.error, /房间|引用|build/i)
+  assert.equal(db.$client.prepare('SELECT COUNT(*) AS n FROM roms WHERE id IN (101, 106)').get().n, 2)
+})
+
+test('hard delete preserves assets referenced through core BIOS provenance', async () => {
+  const deleted = await json('/api/roms/108?permanent=1', {
+    method: 'DELETE',
+    token: 'owner-token',
+  })
+  assert.equal(deleted.response.status, 200)
+  assert.equal(db.$client.prepare('SELECT COUNT(*) AS n FROM roms WHERE id = 108').get().n, 0)
+  assert.equal(db.$client.prepare('SELECT COUNT(*) AS n FROM assets WHERE id = ?').get(fixture.core.biosMember.id).n, 1)
+
+  const biosUrl = `/api/bios/${fixture.coreFingerprints.get(20)}/${fixture.core.biosMember.sha}/neogeo.zip`
+  const biosResponse = await request(biosUrl)
+  assert.equal(biosResponse.status, 200)
+  assert.deepEqual(Buffer.from(await biosResponse.arrayBuffer()), fixture.core.biosMember.bytes)
+})
+
+test('runtime helpers use exact build core URLs and preserve server mount order', async () => {
+  const [{ getPlatformInfo, getBiosUrls }, nostalgist] = await Promise.all([
+    import('../src/data/config.js'),
+    import('../src/composables/nostalgist.js'),
+  ])
+  const { data } = await json('/api/rom-builds/1002', { token: 'owner-token' })
+  const romMeta = { platform: 'arcade', activeBuild: data.build }
+  const platform = getPlatformInfo(romMeta)
+  assert.equal(platform.core, 'mame2003_plus')
+  assert.equal(platform.coreJsUrl, data.build.core.jsUrl)
+  assert.deepEqual(getBiosUrls(romMeta), data.build.core.bios.map(({ fileName, url }) => ({
+    fileName,
+    fileContent: url,
+  })))
+
+  const fetched = []
+  const runtime = await nostalgist.resolveBuildArtifacts(data.build, async (url) => {
+    fetched.push(url)
+    return new Blob([url])
+  })
+  assert.deepEqual(runtime.rom.map(({ fileName }) => fileName), ['parent.zip', 'child.zip'])
+  assert.deepEqual(fetched.slice(0, 2), data.build.archives.map(({ url }) => url))
+
+  const coreRequests = []
+  const options = nostalgist.buildEmulatorOptions({
+    core: data.build.core.name,
+    coreJsUrl: data.build.core.jsUrl,
+    coreWasmUrl: data.build.core.wasmUrl,
+    rom: runtime.rom,
+    bios: runtime.bios,
+    assetFetcher: async (url) => {
+      coreRequests.push(url)
+      return new Blob([url])
+    },
+  })
+  await options.resolveCoreJs('ignored')
+  await options.resolveCoreWasm('ignored')
+  assert.deepEqual(coreRequests, [data.build.core.jsUrl, data.build.core.wasmUrl])
+})

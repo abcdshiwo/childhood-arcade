@@ -64,7 +64,7 @@
               <span class="rt-text">{{ rom.title }}</span>
               <svg class="rt-pen" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
             </div>
-            <div class="rf">{{ rom.fileName }}</div>
+            <div class="rf">{{ rom.fileName }} · {{ buildStatusLabel(rom) }}</div>
           </div>
           <div>
             <span class="plat-badge" :style="{ '--pc': platformColor(rom.platform) }">{{ platformLabel(rom.platform) }}</span>
@@ -72,8 +72,8 @@
           <div class="muted">{{ fmtSize(rom.fileSize) }}</div>
           <div class="muted">{{ fmtTime(rom.createdAt) }}</div>
           <div>
-            <label class="switch" :title="rom.isPublic ? '公开' : '私密'">
-              <input type="checkbox" :checked="rom.isPublic" @change="togglePublic(rom, $event.target.checked)" />
+            <label class="switch" :title="publicToggleTitle(rom)">
+              <input type="checkbox" :checked="rom.isPublic" :disabled="rom.compatStatus !== 'ready'" @change="togglePublic(rom, $event.target.checked)" />
               <span class="track"><span class="thumb"></span></span>
               <span class="switch-label">{{ rom.isPublic ? '公开' : '私密' }}</span>
             </label>
@@ -88,7 +88,7 @@
 
     <section v-else-if="activeTab === 'trash'">
       <div v-if="trashRoms.length" class="trash-hint">
-        这些 ROM 已标记为删除，文件仍在磁盘上保留。恢复可将其还原，永久删除会抹除磁盘上的 ROM、存档与子版本。
+        这些 ROM 已标记为删除，文件仍在磁盘上保留。恢复可将其还原；永久删除只会清理没有房间、存档、子版本或历史引用的内容。
       </div>
       <div v-if="trashLoading" class="panel-card loading-card">
         <div class="spinner"></div>
@@ -176,10 +176,22 @@ function onUploaded(r) {
 }
 
 async function togglePublic(rom, val) {
+  if (val && rom.compatStatus !== 'ready') {
+    alert('构建尚未通过验证，暂时不能公开')
+    return
+  }
   try {
     const updated = await api.romUpdate(rom.id, { isPublic: val })
-    rom.isPublic = updated.isPublic
+    Object.assign(rom, updated)
   } catch (err) { alert(err.message) }
+}
+
+function buildStatusLabel(rom) {
+  return rom.compatStatus === 'ready' ? '已验证' : rom.compatStatus === 'unverified' ? '待验证' : (rom.compatStatus || '无构建')
+}
+function publicToggleTitle(rom) {
+  if (rom.compatStatus !== 'ready') return '构建通过验证后才能公开'
+  return rom.isPublic ? '公开' : '私密'
 }
 
 function startEdit(rom) {
@@ -231,7 +243,7 @@ async function restore(rom) {
 }
 
 async function purge(rom) {
-  if (!confirm(`永久删除 "${rom.title}"？磁盘上的 ROM 文件、所有云存档以及子版本都会被抹除，不可恢复。`)) return
+  if (!confirm(`永久删除 "${rom.title}"？有房间、存档、子版本或历史引用时操作会被拒绝。`)) return
   try {
     await api.romDelete(rom.id, { permanent: true })
     trashRoms.value = trashRoms.value.filter((r) => r.id !== rom.id)
@@ -244,6 +256,8 @@ function play(rom) { router.push(`/play/${rom.id}`) }
 function platformColor(p) { return getPlatform(p).color }
 function platformLabel(p) { return getPlatform(p).shortLabel }
 function fmtSize(b) {
+  if (!Number.isFinite(Number(b))) return '—'
+  b = Number(b)
   if (b < 1024) return b + ' B'
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
   return (b / 1024 / 1024).toFixed(1) + ' MB'

@@ -138,7 +138,7 @@
             <div class="pdot" :style="{ background: platColor(r.platform) }"></div>
             <div>
               <div class="rt">{{ r.title }}</div>
-              <div class="rf">{{ r.fileName }} · {{ fmtSize(r.fileSize) }}</div>
+              <div class="rf">{{ r.fileName }} · {{ fmtSize(r.fileSize) }} · {{ buildStatusLabel(r) }}</div>
             </div>
           </div>
           <div>
@@ -150,7 +150,7 @@
             <button
               class="pill-tag pill-toggle"
               :class="r.isPublic ? 'pill-pub' : 'pill-priv'"
-              :disabled="togglingId === r.id"
+              :disabled="togglingId === r.id || (r.compatStatus !== 'ready' && !r.isPublic)"
               @click="togglePublic(r)"
               :title="r.isPublic ? '点击设为私密' : '点击设为公开'"
             >
@@ -191,7 +191,7 @@ const users = ref([])
 const roms = ref([])
 const showUpload = ref(false)
 
-const publicRomCount = computed(() => roms.value.filter((r) => r.isPublic).length)
+const publicRomCount = computed(() => roms.value.filter((r) => r.isPublic && r.compatStatus === 'ready').length)
 const adminCount = computed(() => users.value.filter((u) => u.role === 'admin').length)
 
 onMounted(async () => {
@@ -262,11 +262,15 @@ async function deleteRom(r) {
 
 const togglingId = ref(null)
 async function togglePublic(r) {
+  if (!r.isPublic && r.compatStatus !== 'ready') {
+    alert('构建尚未通过验证，暂时不能公开')
+    return
+  }
   togglingId.value = r.id
   try {
     const updated = await api.romUpdate(r.id, { isPublic: !r.isPublic })
     const i = roms.value.findIndex((x) => x.id === r.id)
-    if (i !== -1) roms.value[i] = { ...roms.value[i], isPublic: !!updated.isPublic }
+    if (i !== -1) roms.value[i] = { ...roms.value[i], ...updated }
   } catch (err) {
     alert(err?.message || '切换失败')
   } finally {
@@ -274,10 +278,16 @@ async function togglePublic(r) {
   }
 }
 
+function buildStatusLabel(rom) {
+  return rom.compatStatus === 'ready' ? '已验证' : rom.compatStatus === 'unverified' ? '待验证' : (rom.compatStatus || '无构建')
+}
+
 function play(r) { router.push(`/play/${r.id}`) }
 function platColor(p) { return getPlatform(p).color }
 function platLabel(p) { return getPlatform(p).shortLabel }
 function fmtSize(b) {
+  if (!Number.isFinite(Number(b))) return '—'
+  b = Number(b)
   if (b < 1024) return b + ' B'
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB'
   return (b / 1024 / 1024).toFixed(1) + ' MB'

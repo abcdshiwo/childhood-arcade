@@ -68,7 +68,7 @@ export function useEmulator({
     if (canvasElement !== emulatorCanvas) canvasElement?.remove?.()
   }
 
-  async function boot({ core, rom, romUrl, romFileName, bios = [], retroarchConfig = {}, shader }) {
+  async function boot({ core, rom, romUrl, romFileName, coreJsUrl, coreWasmUrl, bios = [], retroarchConfig = {}, shader }) {
     if (!wrapperRef.value) throw new Error('wrapper not mounted')
     if (instance.value) return instance.value
     activeBoots += 1
@@ -88,6 +88,8 @@ export function useEmulator({
       wrapperRef.value.append(canvasElement)
       emu = await prepare({
         core,
+        coreJsUrl,
+        coreWasmUrl,
         rom: romInput,
         bios,
         retroarchConfig,

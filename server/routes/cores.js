@@ -1,35 +1,75 @@
-// Serve libretro cores from local disk. Files are shipped with the repo /
-// Docker image under data/cores/ so runtime is pure static reads — no outbound
-// fetches, no dependency on jsdelivr being reachable.
-//
-//   GET /api/cores/<core>.js   → application/javascript
-//   GET /api/cores/<core>.wasm → application/wasm
+import { readFileSync } from 'node:fs'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 
 import { Hono } from 'hono'
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve, join } from 'node:path'
+import { eq } from 'drizzle-orm'
 
-const CORES_DIR = resolve(process.env.CORES_DIR || 'data/cores')
+import { db } from '../db/index.js'
+import { assets, coreArtifacts } from '../db/schema.js'
+
+const ASSET_ROOT = resolve(process.env.LIBRARY_ASSET_ROOT || 'data/library-assets')
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
 
 export const coreRoutes = new Hono()
 
-coreRoutes.get('/:file', (c) => {
-  const file = c.req.param('file')
-  const m = /^([a-z0-9_]+)\.(js|wasm)$/.exec(file)
-  if (!m) return c.text('bad request', 400)
-  const [, , ext] = m
-
-  const full = join(CORES_DIR, file)
-  if (!full.startsWith(CORES_DIR) || !existsSync(full)) {
-    return c.text('core not found on disk', 404)
+function assetPath(asset) {
+  if (!asset?.filePath || isAbsolute(asset.filePath) || asset.filePath.includes('\\')) {
+    throw new Error('invalid asset path')
   }
+  const fullPath = resolve(ASSET_ROOT, ...asset.filePath.split('/'))
+  const pathFromRoot = relative(ASSET_ROOT, fullPath)
+  if (
+    pathFromRoot === '..' ||
+    pathFromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromRoot)
+  ) {
+    throw new Error('asset path escapes library root')
+  }
+  return fullPath
+}
 
-  const body = readFileSync(full)
+coreRoutes.get('/:fingerprint/:sha/:file', async (c) => {
+  const fingerprint = c.req.param('fingerprint').toLowerCase()
+  const requestedSha = c.req.param('sha').toLowerCase()
+  const file = c.req.param('file')
+  if (!SHA256_PATTERN.test(fingerprint) || !SHA256_PATTERN.test(requestedSha)) {
+    return c.text('not found', 404)
+  }
+  const core = (await db.select().from(coreArtifacts)
+    .where(eq(coreArtifacts.artifactFingerprint, fingerprint)).limit(1))[0]
+  if (!core) return c.text('not found', 404)
+
+  const expected = [
+    { extension: 'js', assetId: core.jsAssetId, sha: core.jsSha256 },
+    { extension: 'wasm', assetId: core.wasmAssetId, sha: core.wasmSha256 },
+    { extension: 'dat', assetId: core.datAssetId, sha: core.datSha256 },
+  ].find(({ extension, assetId, sha }) =>
+    Number.isInteger(assetId) &&
+    sha === requestedSha &&
+    file === `${core.coreName}.${extension}`,
+  )
+  if (!expected) return c.text('not found', 404)
+  const asset = (await db.select().from(assets)
+    .where(eq(assets.id, expected.assetId)).limit(1))[0]
+  if (!asset || asset.sha256 !== requestedSha) return c.text('not found', 404)
+
+  let body
+  try {
+    body = readFileSync(assetPath(asset))
+  } catch {
+    return c.text('not found', 404)
+  }
+  const contentType = expected.extension === 'js'
+    ? 'application/javascript; charset=utf-8'
+    : expected.extension === 'wasm'
+      ? 'application/wasm'
+      : 'application/xml; charset=utf-8'
   return new Response(body, {
     headers: {
-      'Content-Type': ext === 'js' ? 'application/javascript; charset=utf-8' : 'application/wasm',
+      'Content-Type': asset.mimeType || contentType,
       'Content-Length': String(body.length),
       'Cache-Control': 'public, max-age=31536000, immutable',
+      ETag: `"${asset.sha256}"`,
     },
   })
 })

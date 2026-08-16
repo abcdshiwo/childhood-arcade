@@ -50,11 +50,9 @@ export const api = {
   romFavorite:   (id) => request(`/api/roms/${id}/favorite`, { method: 'POST' }),
   romUnfavorite: (id) => request(`/api/roms/${id}/favorite`, { method: 'DELETE' }),
   romVersions:   (id) => request(`/api/roms/${id}/versions`),
-  // Include the original filename as the last URL segment so emulators that
-  // infer romset identity from the archive name (FBNeo, MAME) can find matches.
-  romFileUrl: (id, name) => name
-    ? `/api/roms/${id}/file/${encodeURIComponent(name)}`
-    : `/api/roms/${id}/file`,
+  romBuild: (buildId) => request(`/api/rom-builds/${buildId}`),
+  romBuildFileUrl: (buildId, name, rootBuildId = buildId) =>
+    `/api/rom-builds/${buildId}/file/${encodeURIComponent(name)}?forBuild=${encodeURIComponent(rootBuildId)}`,
 
   // saves
   savesMine: () => request('/api/saves/mine'),

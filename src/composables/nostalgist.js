@@ -37,6 +37,9 @@ export function buildEmulatorOptions({
   rom,           // string | { fileName, fileContent } | Array<{fileName, fileContent}>
   romUrl,        // legacy
   romFileName,   // legacy
+  coreJsUrl,
+  coreWasmUrl,
+  assetFetcher = cachedFetch,
   bios = [],
   retroarchConfig = {},
   shader,
@@ -57,14 +60,47 @@ export function buildEmulatorOptions({
     // IndexedDB so reopening a game is near-instant and works offline.
     // Backend already fetches once from jsdelivr and caches to disk
     // (server/routes/cores.js); IDB is the client-side tier on top.
-    resolveCoreJs:   (c) => cachedFetch(`/api/cores/${c}.js`),
-    resolveCoreWasm: (c) => cachedFetch(`/api/cores/${c}.wasm`),
+    resolveCoreJs:   () => {
+      if (!coreJsUrl) throw new Error('exact core JS artifact URL is required')
+      return assetFetcher(coreJsUrl)
+    },
+    resolveCoreWasm: () => {
+      if (!coreWasmUrl) throw new Error('exact core WASM artifact URL is required')
+      return assetFetcher(coreWasmUrl)
+    },
   }
   if (bios?.length) options.bios = bios
   if (shader) options.shader = shader
   if (element) options.element = element
 
   return options
+}
+
+// Resolve every immutable runtime dependency from one build description. The
+// input order is the server's mount order; split clones therefore mount the
+// exact parent archive before the child archive.
+export async function resolveBuildArtifacts(build, assetFetcher = cachedFetch) {
+  if (!build?.core || !Array.isArray(build.archives) || build.archives.length === 0) {
+    throw new Error('immutable build has no runtime artifacts')
+  }
+  const [rom, bios] = await Promise.all([
+    Promise.all(build.archives.map(async (archive) => ({
+      fileName: archive.fileName,
+      fileContent: await assetFetcher(archive.url),
+    }))),
+    Promise.all((build.core.bios || []).map(async (item) => ({
+      fileName: item.fileName,
+      fileContent: await assetFetcher(item.url),
+    }))),
+  ])
+  return {
+    core: build.core.name,
+    coreJsUrl: build.core.jsUrl,
+    coreWasmUrl: build.core.wasmUrl,
+    coreDatUrl: build.core.datUrl || null,
+    rom,
+    bios,
+  }
 }
 
 /**

@@ -4,7 +4,7 @@
       v-if="rom || fatalError || isGuestMode"
       :title="displayName"
       :platform="platformInfo"
-      :core-name="coreDisplayName[platformInfo.core]"
+      :core-name="coreDisplayName[platformInfo.core] || platformInfo.core"
       :can-save="isAuthed && !isGuestMode"
       @back="goBack"
       @fullscreen="onFullscreen"
@@ -48,6 +48,8 @@
           v-if="rom && biosReady && !authLoading && (!isRoomMode || isHostMode)"
           ref="portalRef"
           :core="platformInfo.core"
+          :core-js-url="platformInfo.coreJsUrl"
+          :core-wasm-url="platformInfo.coreWasmUrl"
           :rom="rom"
           :bios="bios"
           :retroarch-config="retroarchConfig"
@@ -142,8 +144,8 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, reactive, shallowRef } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '../api/client.js'
-import { getPlatformInfo, getBiosUrls } from '../data/config.js'
-import { cachedFetch } from '../composables/useBlobCache.js'
+import { getPlatformInfo } from '../data/config.js'
+import { resolveBuildArtifacts } from '../composables/nostalgist.js'
 import { coreDisplayName } from '../constants/cores.js'
 import {
   useInputMapping,
@@ -201,49 +203,46 @@ const canGuestPlay = computed(() => roomInfo.value?.allowPlay !== false)
 // WebRTC
 let rtc = null
 
-// When the loaded ROM is a variant (e.g. kof97pls — a split clone of kof97),
-// the emulator core needs the parent romset mounted alongside it or graphics
-// come out garbled (missing C/V/S/M ROMs). `parentForChild` is populated by
-// loadMeta when romMeta has parentRomId set.
-const parentForChild = ref(null)
 const siblings = ref([])        // all versions in the family (parent + children)
 const versionMenuOpen = ref(false)
 
-// Resolved ROM payload: filename + Blob (pulled from IndexedDB cache when
-// available). `null` while still fetching; boot waits for it to populate.
 const rom = shallowRef(null)
+const bios = shallowRef([])
+const biosReady = ref(false)
 
-async function resolveRomBlobs() {
-  const meta = romMeta.value
-  if (!meta) { rom.value = null; return }
-  const parent = parentForChild.value
+async function resolveRuntimeArtifacts() {
+  const build = romMeta.value?.activeBuild
+  if (!build) {
+    rom.value = null
+    bios.value = []
+    biosReady.value = false
+    return
+  }
   try {
-    const selfBlob = await cachedFetch(api.romFileUrl(meta.id, meta.fileName))
-    const self = { fileName: meta.fileName, fileContent: selfBlob }
-    if (parent) {
-      const parentBlob = await cachedFetch(api.romFileUrl(parent.id, parent.fileName))
-      rom.value = [self, { fileName: parent.fileName, fileContent: parentBlob }]
-    } else {
-      rom.value = self
-    }
+    const runtime = await resolveBuildArtifacts(build)
+    rom.value = runtime.rom.length === 1 ? runtime.rom[0] : runtime.rom
+    bios.value = runtime.bios
+    biosReady.value = true
   } catch (err) {
     fatalError.value = `下载 ROM 失败：${err.message}`
+    biosReady.value = false
   }
 }
 
 // Guest spectators receive the game via WebRTC from the host and never need
 // the ROM file locally — in room mode we defer the ROM fetch until the
 // `welcome` frame confirms we're the host (signalMe arrives). This also keeps
-// anonymous spectators from hitting the auth-gated /api/roms/:id/file.
-watch([romMeta, parentForChild, signalMe], () => {
+// anonymous spectators from hitting the auth-gated build file endpoint.
+watch([romMeta, signalMe], () => {
   rom.value = null
+  biosReady.value = false
   if (isRoomMode) {
     if (!signalMe.value) return
     if (!signalMe.value.isHost) return
   }
-  resolveRomBlobs()
+  resolveRuntimeArtifacts()
 })
-const platformInfo = computed(() => getPlatformInfo(romMeta.value?.platform))
+const platformInfo = computed(() => getPlatformInfo(romMeta.value))
 
 // Human-readable loading hint — arcade takes much longer than NES/GBA
 // because FBNeo ships a ~2 MB core plus up to 5 MB of BIOS files.
@@ -262,46 +261,6 @@ function onBooted() {
 }
 function reloadPage() { window.location.reload() }
 const displayName = computed(() => romMeta.value?.title || (isGuestMode.value ? '连接中…' : '加载中…'))
-// Resolved BIOS payloads. Missing files (404) are silently skipped so an
-// incomplete BIOS install doesn't block boot. `biosReady` gates the emulator
-// mount: we only let EmulatorPortal render once resolveBios has finished,
-// otherwise BIOS fetches (arcade ~5 MB) can lose the race against the ROM
-// download and the core boots with `bios: []`, triggering "missing romset"
-// errors even though the files exist on disk.
-const bios = shallowRef([])
-const biosReady = ref(false)
-
-async function resolveBios() {
-  biosReady.value = false
-  const platform = romMeta.value?.platform
-  const urls = getBiosUrls(platform)
-  if (!urls.length) { bios.value = []; biosReady.value = true; return }
-  // Deliberately NOT using the IDB blob cache for BIOS. The cache keys by URL
-  // and never invalidates, so if the server's pgm.zip / neogeo.zip gets updated
-  // (e.g. you add the newer PGM2/SVG files), browsers that ever loaded the old
-  // copy will keep mounting the stale one and FBNeo will keep reporting missing
-  // ROMs with correct CRCs. Arcade BIOS total is ~5 MB and server already sends
-  // Cache-Control: no-store, so re-fetching each boot is the right default.
-  const items = await Promise.all(urls.map(async (u) => {
-    try {
-      const res = await fetch(u.fileContent, { cache: 'no-store' })
-      if (!res.ok) return null  // server 404 — just drop it
-      return { fileName: u.fileName, fileContent: await res.blob() }
-    } catch {
-      return null
-    }
-  }))
-  bios.value = items.filter(Boolean)
-  biosReady.value = true
-}
-
-watch([() => romMeta.value?.platform, signalMe], () => {
-  // Same rationale as the ROM watcher: guests don't mount the emulator, so
-  // they don't need BIOS either. Saves ~5 MB arcade BIOS download.
-  if (isRoomMode && signalMe.value && !signalMe.value.isHost) return
-  if (isRoomMode && !signalMe.value) return
-  resolveBios()
-})
 watch(() => signalMe.value?.isHost, (isHost, wasHost) => {
   if (isHost && !wasHost) {
     player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
@@ -355,21 +314,14 @@ async function loadMeta() {
       return
     }
     romMeta.value = found
-    // Load sibling versions for the top-bar switcher, and grab the parent
-    // ROM so Nostalgist can mount both zips when playing a variant.
+    // Load sibling versions for the top-bar switcher. Runtime dependencies are
+    // already fixed by the active build returned above.
     try {
       const seedId = found.parentRomId || found.id
       const { versions } = await api.romVersions(seedId)
       siblings.value = versions || []
-      if (found.parentRomId) {
-        const parent = versions.find((r) => r.id === found.parentRomId)
-        if (parent) parentForChild.value = parent
-      } else {
-        parentForChild.value = null
-      }
     } catch {
       siblings.value = [found]
-      parentForChild.value = null
     }
   } catch (err) {
     fatalError.value = err.message
@@ -673,7 +625,6 @@ watch(() => props.id, (now, prev) => {
   if (!prev || now === prev) return
   player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
   romMeta.value = null
-  parentForChild.value = null
   siblings.value = []
   booted.value = false
   loadMeta()

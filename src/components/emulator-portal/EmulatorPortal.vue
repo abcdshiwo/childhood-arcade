@@ -10,6 +10,8 @@ import { useEmulator } from '../../composables/useEmulator.js'
 
 const props = defineProps({
   core: { type: String, required: true },
+  coreJsUrl: { type: String, default: '' },
+  coreWasmUrl: { type: String, default: '' },
   // Either a single { fileName, fileContent } or an array of them — arcade
   // clones need their parent romset mounted alongside the clone in the VFS.
   rom: { type: [Object, Array], required: true },
@@ -33,6 +35,8 @@ async function start() {
   try {
     await boot({
       core: props.core,
+      coreJsUrl: props.coreJsUrl,
+      coreWasmUrl: props.coreWasmUrl,
       rom: props.rom,
       bios: props.bios,
       retroarchConfig: props.retroarchConfig,
@@ -53,8 +57,8 @@ function romKey(r) {
   if (Array.isArray(r)) return r.map((x) => x?.fileContent).join('|')
   return r.fileContent
 }
-watch(() => [romKey(props.rom), props.core], async ([newKey, newCore], [oldKey, oldCore]) => {
-  if (newKey === oldKey && newCore === oldCore) return
+watch(() => [romKey(props.rom), props.core, props.coreJsUrl, props.coreWasmUrl], async ([newKey, newCore, newJs, newWasm], [oldKey, oldCore, oldJs, oldWasm]) => {
+  if (newKey === oldKey && newCore === oldCore && newJs === oldJs && newWasm === oldWasm) return
   await destroy()
   await start()
 })

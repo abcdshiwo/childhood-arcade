@@ -3,6 +3,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import { users, roms, STATUS } from '../db/schema.js'
 import { requireAdmin } from '../middleware/auth.js'
+import { serializeRomRows } from './roms.js'
 
 export const adminRoutes = new Hono()
 
@@ -61,16 +62,8 @@ adminRoutes.get('/roms', async (c) => {
     .innerJoin(users, eq(users.id, roms.userId))
     .where(eq(roms.status, STATUS.normal))
     .orderBy(desc(roms.createdAt))
+  const ownerById = new Map(rows.map(({ user }) => [user.id, user]))
   return c.json({
-    roms: rows.map(({ rom, user }) => ({
-      id: rom.id,
-      title: rom.title,
-      platform: rom.platform,
-      fileName: rom.fileName,
-      fileSize: rom.fileSize,
-      isPublic: Boolean(rom.isPublic),
-      createdAt: rom.createdAt,
-      owner: user,
-    })),
+    roms: await serializeRomRows(rows.map(({ rom }) => rom), { ownerById }),
   })
 })

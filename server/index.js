@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { runMigrations } from './db/index.js'
 import { authRoutes } from './routes/auth.js'
-import { romRoutes } from './routes/roms.js'
+import { romRoutes, romBuildRoutes } from './routes/roms.js'
 import { adminRoutes } from './routes/admin.js'
 import { biosRoutes } from './routes/bios.js'
 import { coreRoutes } from './routes/cores.js'
@@ -27,6 +27,7 @@ installRoomsWebSocket(app, upgradeWebSocket)
 
 app.route('/api/auth', authRoutes)
 app.route('/api/roms', romRoutes)
+app.route('/api/rom-builds', romBuildRoutes)
 app.route('/api/admin', adminRoutes)
 app.route('/api/bios', biosRoutes)
 app.route('/api/cores', coreRoutes)

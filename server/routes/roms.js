@@ -1,133 +1,416 @@
+import { createHash } from 'node:crypto'
+import { createReadStream, statSync, unlinkSync } from 'node:fs'
+import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+
 import { Hono } from 'hono'
-import { and, desc, eq, inArray, isNull, sql, or } from 'drizzle-orm'
-import { z } from 'zod'
-import { randomUUID } from 'node:crypto'
-import { mkdirSync, createReadStream, statSync, unlinkSync } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
-import { join, extname, resolve } from 'node:path'
-import { db } from '../db/index.js'
-import { roms, users, favorites, STATUS } from '../db/schema.js'
-import { requireAuth, currentUser } from '../middleware/auth.js'
 import { stream } from 'hono/streaming'
+import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm'
+import { z } from 'zod'
+
+import { db } from '../db/index.js'
+import {
+  assets,
+  batchBuildRefs,
+  buildSourceMembers,
+  buildValidationRuns,
+  coreArtifacts,
+  favorites,
+  romAssetRefs,
+  romBuilds,
+  roms,
+  rooms,
+  saveStates,
+  users,
+  STATUS,
+} from '../db/schema.js'
+import { currentUser, requireAuth } from '../middleware/auth.js'
+import {
+  computeBuildFingerprint,
+  computeCompatibilityStatus,
+} from '../services/build-contract.js'
+import { createContentStore } from '../services/content-store.js'
+import {
+  countAssetReferences,
+  hashCanonicalLibraryJson,
+} from '../services/library-service.js'
 import { getSetting } from './settings.js'
 
-const UPLOADS_DIR = resolve(process.env.UPLOADS_DIR || 'data/uploads')
+const ASSET_ROOT = resolve(process.env.LIBRARY_ASSET_ROOT || 'data/library-assets')
 const MAX_SIZE = Number(process.env.MAX_UPLOAD_BYTES) || 100 * 1024 * 1024
-const ALLOWED_PLATFORMS = new Set([
-  'arcade',
-  'nes', 'famicom', 'fds', 'sfc', 'snes', 'gb', 'gbc', 'gba',
-  'megadrive', 'genesis', 'sms', 'gamegear',
-  'psx',
-])
+const SHA256_PATTERN = /^[0-9a-f]{64}$/
+const contentStore = createContentStore({ root: ASSET_ROOT })
 
-// Matches only live (non-soft-deleted) ROMs
-const liveRom = (extra) => extra ? and(eq(roms.status, STATUS.normal), extra) : eq(roms.status, STATUS.normal)
+const PLATFORM_DEFAULT_CORE = Object.freeze({
+  arcade: 'fbneo',
+  nes: 'fceumm',
+  famicom: 'fceumm',
+  fds: 'fceumm',
+  sfc: 'snes9x',
+  snes: 'snes9x',
+  gb: 'mgba',
+  gbc: 'mgba',
+  gba: 'mgba',
+  megadrive: 'genesis_plus_gx',
+  genesis: 'genesis_plus_gx',
+  sms: 'genesis_plus_gx',
+  gamegear: 'genesis_plus_gx',
+  psx: 'pcsx_rearmed',
+})
+const ALLOWED_PLATFORMS = new Set(Object.keys(PLATFORM_DEFAULT_CORE))
+
+const liveRom = (extra) =>
+  extra ? and(eq(roms.status, STATUS.normal), extra) : eq(roms.status, STATUS.normal)
 
 export const romRoutes = new Hono()
+export const romBuildRoutes = new Hono()
 
-function serialize(rom, owner, opts = {}) {
-  return {
-    id: rom.id,
-    title: rom.title,
-    platform: rom.platform,
-    fileName: rom.fileName,
-    fileSize: rom.fileSize,
-    isPublic: Boolean(rom.isPublic),
-    userId: rom.userId,
-    owner: owner ? { id: owner.id, username: owner.username } : undefined,
-    parentRomId: rom.parentRomId ?? null,
-    versionLabel: rom.versionLabel ?? null,
-    versionCount: opts.versionCount ?? undefined,
-    isFavorite: !!opts.isFavorite,
-    createdAt: rom.createdAt,
-    updatedAt: rom.updatedAt,
+function canonicalSetName(fileName) {
+  const extension = extname(fileName)
+  const stem = fileName.slice(0, extension ? -extension.length : undefined)
+  const normalized = stem
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return normalized || `upload_${createHash('sha256').update(fileName).digest('hex').slice(0, 12)}`
+}
+
+function archiveFileName(rom) {
+  const rawExtension = extname(rom.fileName || '').toLowerCase()
+  const extension = /^\.[a-z0-9]{1,9}$/.test(rawExtension) ? rawExtension : '.zip'
+  return `${rom.setNameNormalized}${extension}`
+}
+
+function resolveAssetPath(asset) {
+  if (!asset?.filePath || isAbsolute(asset.filePath) || asset.filePath.includes('\\')) {
+    throw new Error('invalid content asset path')
+  }
+  const fullPath = resolve(ASSET_ROOT, ...asset.filePath.split('/'))
+  const pathFromRoot = relative(ASSET_ROOT, fullPath)
+  if (
+    pathFromRoot === '..' ||
+    pathFromRoot.startsWith(`..${sep}`) ||
+    isAbsolute(pathFromRoot)
+  ) {
+    throw new Error('content asset path escapes library root')
+  }
+  return fullPath
+}
+
+function biosMembers(core) {
+  if (!core?.provenanceJson) return []
+  try {
+    const members = JSON.parse(core.provenanceJson)?.bios?.members
+    if (!Array.isArray(members)) return []
+    return members
+      .filter((member) =>
+        Number.isInteger(member?.assetId) &&
+        typeof member?.fileName === 'string' &&
+        SHA256_PATTERN.test(String(member?.sha256 || '').toLowerCase()),
+      )
+      .map((member) => ({
+        assetId: member.assetId,
+        fileName: member.fileName,
+        sha256: member.sha256.toLowerCase(),
+      }))
+  } catch {
+    return []
   }
 }
 
-// Count child ROMs grouped by parent id — used to annotate parent listings
-// with a "N 版本" badge in the Gallery.
+export function serializeCoreArtifact(core) {
+  if (!core) return null
+  const fingerprint = core.artifactFingerprint
+  const coreName = core.coreName
+  const root = `/api/cores/${fingerprint}`
+  return {
+    id: core.id,
+    name: coreName,
+    version: core.displayVersion,
+    artifactFingerprint: fingerprint,
+    jsSha256: core.jsSha256,
+    wasmSha256: core.wasmSha256,
+    datSha256: core.datSha256 ?? null,
+    biosManifestSha256: core.biosManifestSha256 ?? null,
+    jsUrl: `${root}/${core.jsSha256}/${encodeURIComponent(coreName)}.js`,
+    wasmUrl: `${root}/${core.wasmSha256}/${encodeURIComponent(coreName)}.wasm`,
+    datUrl: core.datSha256
+      ? `${root}/${core.datSha256}/${encodeURIComponent(coreName)}.dat`
+      : null,
+    bios: biosMembers(core).map((member) => ({
+      fileName: member.fileName,
+      sha256: member.sha256,
+      url: `/api/bios/${fingerprint}/${member.sha256}/${encodeURIComponent(member.fileName)}`,
+    })),
+  }
+}
+
+async function acceptedResults(buildIds) {
+  if (buildIds.length === 0) return new Map()
+  const rows = await db
+    .select({ buildId: buildValidationRuns.romBuildId, result: buildValidationRuns.result })
+    .from(buildValidationRuns)
+    .where(and(
+      inArray(buildValidationRuns.romBuildId, buildIds),
+      eq(buildValidationRuns.acceptance, 'accepted'),
+    ))
+  return new Map(rows.map((row) => [row.buildId, row.result]))
+}
+
+async function rowsByIds(table, column, ids) {
+  if (ids.length === 0) return []
+  return db.select().from(table).where(inArray(column, ids))
+}
+
+async function hydrateBuilds(buildIds) {
+  const uniqueBuildIds = [...new Set(buildIds.filter(Number.isInteger))]
+  if (uniqueBuildIds.length === 0) return new Map()
+
+  const rootBuilds = await rowsByIds(romBuilds, romBuilds.id, uniqueBuildIds)
+  const parents = await rowsByIds(
+    romBuilds,
+    romBuilds.id,
+    [...new Set(rootBuilds.map((build) => build.runtimeParentBuildId).filter(Number.isInteger))],
+  )
+  const allBuilds = [...rootBuilds, ...parents]
+  const buildById = new Map(allBuilds.map((build) => [build.id, build]))
+  const romRows = await rowsByIds(
+    roms,
+    roms.id,
+    [...new Set(allBuilds.map((build) => build.romId))],
+  )
+  const romById = new Map(romRows.map((rom) => [rom.id, rom]))
+  const cores = await rowsByIds(
+    coreArtifacts,
+    coreArtifacts.id,
+    [...new Set(rootBuilds.map((build) => build.coreArtifactId))],
+  )
+  const coreById = new Map(cores.map((core) => [core.id, core]))
+  const archiveAssets = await rowsByIds(
+    assets,
+    assets.id,
+    [...new Set(allBuilds.map((build) => build.archiveAssetId).filter(Number.isInteger))],
+  )
+  const assetById = new Map(archiveAssets.map((asset) => [asset.id, asset]))
+  const validationByBuild = await acceptedResults(uniqueBuildIds)
+  const result = new Map()
+
+  for (const root of rootBuilds) {
+    const rom = romById.get(root.romId)
+    const core = coreById.get(root.coreArtifactId)
+    if (!rom || !core) continue
+    const compatStatus = computeCompatibilityStatus({
+      staticStatus: root.staticStatus,
+      acceptedResult: validationByBuild.get(root.id) ?? null,
+    })
+    const chain = []
+    if (root.archiveLayout === 'split') {
+      const parent = buildById.get(root.runtimeParentBuildId)
+      if (parent) chain.push({ build: parent, role: 'parent' })
+    }
+    chain.push({ build: root, role: 'primary' })
+    if (chain.some(({ build }) => {
+      const asset = assetById.get(build.archiveAssetId)
+      return !asset || asset.sha256 !== build.archiveSha256 || asset.fileSize < 0
+    })) continue
+    const archives = chain.map(({ build, role }) => {
+      const archiveRom = romById.get(build.romId)
+      const asset = assetById.get(build.archiveAssetId)
+      if (!archiveRom || !asset) return null
+      const fileName = archiveFileName(archiveRom)
+      return {
+        buildId: build.id,
+        role,
+        fileName,
+        sha256: asset.sha256,
+        fileSize: asset.fileSize,
+        url: `/api/rom-builds/${build.id}/file/${encodeURIComponent(fileName)}?forBuild=${root.id}`,
+      }
+    }).filter(Boolean)
+
+    result.set(root.id, {
+      id: root.id,
+      romId: root.romId,
+      fingerprint: root.buildFingerprint,
+      contentManifestSha256: root.contentManifestSha256,
+      compatStatus,
+      archiveLayout: root.archiveLayout,
+      runtimeParentBuildId: root.runtimeParentBuildId ?? null,
+      core: serializeCoreArtifact(core),
+      archives,
+      createdAt: root.createdAt,
+      _build: root,
+      _rom: rom,
+      _archiveAssets: new Map(
+        chain.map(({ build }) => [build.id, assetById.get(build.archiveAssetId)]),
+      ),
+    })
+  }
+  return result
+}
+
+async function thumbnailDetails(romRows) {
+  const refs = await rowsByIds(
+    romAssetRefs,
+    romAssetRefs.id,
+    romRows.map((rom) => rom.activeThumbnailRefId).filter(Number.isInteger),
+  )
+  const refById = new Map(refs.map((ref) => [ref.id, ref]))
+  const thumbAssets = await rowsByIds(
+    assets,
+    assets.id,
+    [...new Set(refs.map((ref) => ref.assetId))],
+  )
+  return {
+    refById,
+    assetById: new Map(thumbAssets.map((asset) => [asset.id, asset])),
+  }
+}
+
+function publicBuild(build, rom) {
+  return Boolean(
+    build &&
+    rom.status === STATUS.normal &&
+    rom.isPublic &&
+    build.compatStatus === 'ready',
+  )
+}
+
+function publicBuildView(build) {
+  if (!build) return null
+  const { _build, _rom, _archiveAssets, ...view } = build
+  return view
+}
+
+export async function serializeRomRows(romRows, {
+  ownerById = new Map(),
+  favoriteIds = new Set(),
+  versionCounts = new Map(),
+} = {}) {
+  const builds = await hydrateBuilds(
+    romRows.map((rom) => rom.activeBuildId).filter(Number.isInteger),
+  )
+  const { refById, assetById } = await thumbnailDetails(romRows)
+  return romRows.map((rom) => {
+    const build = builds.get(rom.activeBuildId) ?? null
+    const primaryArchive = build?.archives.find((archive) => archive.role === 'primary') ?? null
+    const thumbnailRef = refById.get(rom.activeThumbnailRefId) ?? null
+    const thumbnailAsset = thumbnailRef ? assetById.get(thumbnailRef.assetId) : null
+    return {
+      id: rom.id,
+      title: rom.title,
+      platform: rom.platform,
+      setName: rom.setNameNormalized,
+      setNameNormalized: rom.setNameNormalized,
+      variantKind: rom.variantKind ?? null,
+      datParentSetName: rom.datParentSetName ?? null,
+      familyRootSetName: rom.familyRootSetName ?? null,
+      versionLabel: rom.versionLabel ?? null,
+      isPublic: Boolean(rom.isPublic),
+      userId: rom.userId,
+      owner: ownerById.get(rom.userId),
+      parentRomId: rom.parentRomId ?? null,
+      versionCount: versionCounts.get(rom.id),
+      isFavorite: favoriteIds.has(rom.id),
+      buildId: build?.id ?? null,
+      coreName: build?.core?.name ?? null,
+      coreVersion: build?.core?.version ?? null,
+      coreArtifactFingerprint: build?.core?.artifactFingerprint ?? null,
+      compatStatus: build?.compatStatus ?? null,
+      archiveLayout: build?.archiveLayout ?? null,
+      activeBuild: publicBuildView(build),
+      thumbnailUrl: thumbnailAsset
+        ? `/api/roms/${rom.id}/thumbnail?v=${thumbnailAsset.sha256}`
+        : null,
+      thumbnailMatchKind: thumbnailRef?.matchKind ?? null,
+      thumbnailSourceSetName: thumbnailRef?.sourceSetName ?? null,
+      fileName: primaryArchive?.fileName ?? null,
+      fileSize: primaryArchive?.fileSize ?? null,
+      createdAt: rom.createdAt,
+      updatedAt: rom.updatedAt,
+    }
+  })
+}
+
+async function serializeRomById(id) {
+  const rom = (await db.select().from(roms).where(eq(roms.id, id)).limit(1))[0]
+  if (!rom) return null
+  return (await serializeRomRows([rom]))[0]
+}
+
 async function childCountsFor(parentIds) {
-  if (!parentIds.length) return new Map()
+  if (parentIds.length === 0) return new Map()
   const rows = await db
     .select({ parentRomId: roms.parentRomId, n: sql`count(*)`.as('n') })
     .from(roms)
     .where(and(eq(roms.status, STATUS.normal), inArray(roms.parentRomId, parentIds)))
     .groupBy(roms.parentRomId)
-  const out = new Map()
-  for (const r of rows) out.set(r.parentRomId, Number(r.n))
-  return out
+  return new Map(rows.map((row) => [row.parentRomId, Number(row.n)]))
 }
 
-// Returns a Set<romId> of the current user's favorites, or null when anon.
 async function favoriteSetFor(user, romIds) {
-  if (!user || romIds.length === 0) return null
-  const rows = await db.select({ romId: favorites.romId })
+  if (!user || romIds.length === 0) return new Set()
+  const rows = await db
+    .select({ romId: favorites.romId })
     .from(favorites)
     .where(and(eq(favorites.userId, user.id), inArray(favorites.romId, romIds)))
-  return new Set(rows.map((r) => r.romId))
+  return new Set(rows.map((row) => row.romId))
+}
+
+function ownerMap(rows) {
+  return new Map(rows.map(({ user }) => [user.id, user]))
 }
 
 romRoutes.get('/mine', requireAuth, async (c) => {
   const user = c.get('user')
-  // `/mine` returns everything the user uploaded (parents + children) so they
-  // can manage variants from one place. Gallery filters children separately.
   const rows = await db.select().from(roms)
     .where(liveRom(eq(roms.userId, user.id)))
     .orderBy(desc(roms.createdAt))
-  const favSet = await favoriteSetFor(user, rows.map((r) => r.id))
-  const counts = await childCountsFor(rows.filter((r) => !r.parentRomId).map((r) => r.id))
-  return c.json({ roms: rows.map((r) => serialize(r, null, {
-    isFavorite: favSet?.has(r.id),
-    versionCount: counts.get(r.id),
-  })) })
+  const favoriteIds = await favoriteSetFor(user, rows.map((rom) => rom.id))
+  const versionCounts = await childCountsFor(rows.filter((rom) => !rom.parentRomId).map((rom) => rom.id))
+  return c.json({ roms: await serializeRomRows(rows, { favoriteIds, versionCounts }) })
 })
 
-// List the current user's soft-deleted ROMs — the "recycle bin" view.
-// Ordered by updatedAt (most recently deleted first) so the newest go to top.
 romRoutes.get('/trash', requireAuth, async (c) => {
   const user = c.get('user')
   const rows = await db.select().from(roms)
     .where(and(eq(roms.status, STATUS.deleted), eq(roms.userId, user.id)))
     .orderBy(desc(roms.updatedAt))
-  return c.json({ roms: rows.map((r) => serialize(r, null)) })
+  return c.json({ roms: await serializeRomRows(rows) })
 })
 
-// Restore a soft-deleted ROM (user-owned only, or admin). If the ROM is a
-// child version whose parent is also deleted, the caller is responsible for
-// restoring the parent first — otherwise the ROM would be orphaned.
 romRoutes.post('/:id/restore', requireAuth, async (c) => {
   const user = c.get('user')
   const id = Number(c.req.param('id'))
   const rom = (await db.select().from(roms).where(eq(roms.id, id)).limit(1))[0]
   if (!rom) return c.json({ error: '不存在' }, 404)
   if (rom.userId !== user.id && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403)
-  if (rom.status === STATUS.normal) return c.json({ ok: true })
-  await db.update(roms).set({ status: STATUS.normal }).where(eq(roms.id, id))
+  if (rom.status !== STATUS.normal) {
+    await db.update(roms).set({ status: STATUS.normal }).where(eq(roms.id, id))
+  }
   return c.json({ ok: true })
 })
 
 romRoutes.get('/public', async (c) => {
-  // Only top-level parents show up in the public Gallery. Children are still
-  // reachable via /api/roms/:parentId/versions for the version picker.
   const rows = await db.select({
     rom: roms,
     user: { id: users.id, username: users.username },
   })
     .from(roms)
     .innerJoin(users, eq(users.id, roms.userId))
-    .where(liveRom(and(eq(roms.isPublic, true), isNull(roms.parentRomId))))
+    .where(liveRom(eq(roms.isPublic, true)))
     .orderBy(desc(roms.createdAt))
   const me = await currentUser(c)
-  const favSet = await favoriteSetFor(me, rows.map(({ rom }) => rom.id))
-  const counts = await childCountsFor(rows.map(({ rom }) => rom.id))
-  return c.json({ roms: rows.map(({ rom, user }) => serialize(rom, user, {
-    isFavorite: favSet?.has(rom.id),
-    versionCount: counts.get(rom.id),
-  })) })
+  const favoriteIds = await favoriteSetFor(me, rows.map(({ rom }) => rom.id))
+  const versionCounts = await childCountsFor(rows.filter(({ rom }) => !rom.parentRomId).map(({ rom }) => rom.id))
+  const serialized = await serializeRomRows(rows.map(({ rom }) => rom), {
+    ownerById: ownerMap(rows),
+    favoriteIds,
+    versionCounts,
+  })
+  return c.json({ roms: serialized.filter((rom) => rom.compatStatus === 'ready') })
 })
 
-// List all versions (parent + children) for a given ROM id. Accepts either the
-// parent's id or any child's id — in both cases returns the full family.
 romRoutes.get('/:id/versions', async (c) => {
   const id = Number(c.req.param('id'))
   const seed = (await db.select().from(roms).where(liveRom(eq(roms.id, id))).limit(1))[0]
@@ -142,16 +425,17 @@ romRoutes.get('/:id/versions', async (c) => {
     .where(liveRom(or(eq(roms.id, parentId), eq(roms.parentRomId, parentId))))
     .orderBy(roms.id)
   const me = await currentUser(c)
+  const serialized = await serializeRomRows(rows.map(({ rom }) => rom), {
+    ownerById: ownerMap(rows),
+  })
   return c.json({
     parentId,
-    versions: rows
-      .filter(({ rom }) => rom.isPublic || rom.userId === me?.id || me?.role === 'admin')
-      .map(({ rom, user }) => serialize(rom, user)),
+    versions: serialized.filter((rom) =>
+      me?.role === 'admin' || rom.userId === me?.id || (rom.isPublic && rom.compatStatus === 'ready'),
+    ),
   })
 })
 
-// List the current user's favorited ROMs. Pulls any ROM they favorited that
-// is still live AND they can access (their own ROM, or isPublic).
 romRoutes.get('/favorites', requireAuth, async (c) => {
   const user = c.get('user')
   const rows = await db.select({
@@ -161,31 +445,33 @@ romRoutes.get('/favorites', requireAuth, async (c) => {
     .from(favorites)
     .innerJoin(roms, eq(roms.id, favorites.romId))
     .innerJoin(users, eq(users.id, roms.userId))
-    .where(and(
-      eq(favorites.userId, user.id),
-      eq(roms.status, STATUS.normal),
-    ))
+    .where(and(eq(favorites.userId, user.id), eq(roms.status, STATUS.normal)))
     .orderBy(desc(favorites.createdAt))
+  const serialized = await serializeRomRows(rows.map(({ rom }) => rom), {
+    ownerById: ownerMap(rows),
+    favoriteIds: new Set(rows.map(({ rom }) => rom.id)),
+  })
   return c.json({
-    roms: rows
-      .filter(({ rom }) => rom.isPublic || rom.userId === user.id || user.role === 'admin')
-      .map(({ rom, user: owner }) => serialize(rom, owner, { isFavorite: true })),
+    roms: serialized.filter((rom) =>
+      user.role === 'admin' || rom.userId === user.id || (rom.isPublic && rom.compatStatus === 'ready'),
+    ),
   })
 })
 
 romRoutes.post('/:id/favorite', requireAuth, async (c) => {
   const user = c.get('user')
   const id = Number(c.req.param('id'))
-  const rom = (await db.select().from(roms).where(liveRom(eq(roms.id, id))).limit(1))[0]
+  const source = (await db.select().from(roms).where(liveRom(eq(roms.id, id))).limit(1))[0]
+  const rom = source ? await serializeRomById(id) : null
   if (!rom) return c.json({ error: '不存在' }, 404)
-  if (!rom.isPublic && rom.userId !== user.id && user.role !== 'admin') {
+  if (
+    user.role !== 'admin' &&
+    rom.userId !== user.id &&
+    !(rom.isPublic && rom.compatStatus === 'ready')
+  ) {
     return c.json({ error: 'forbidden' }, 403)
   }
-  try {
-    await db.insert(favorites).values({ userId: user.id, romId: id })
-  } catch {
-    // already favorited — primary-key conflict is fine
-  }
+  await db.insert(favorites).values({ userId: user.id, romId: id }).onConflictDoNothing()
   return c.json({ ok: true, isFavorite: true })
 })
 
@@ -196,173 +482,364 @@ romRoutes.delete('/:id/favorite', requireAuth, async (c) => {
   return c.json({ ok: true, isFavorite: false })
 })
 
+async function defaultCoreFor(platform) {
+  const coreName = PLATFORM_DEFAULT_CORE[platform]
+  if (!coreName) return null
+  return (await db.select().from(coreArtifacts)
+    .where(and(eq(coreArtifacts.coreName, coreName), eq(coreArtifacts.isEnabled, true)))
+    .orderBy(desc(coreArtifacts.createdAt), desc(coreArtifacts.id))
+    .limit(1))[0] ?? null
+}
+
+function existingLogicalRom(tx, userId, platform, setName) {
+  return tx.select().from(roms).where(and(
+    eq(roms.userId, userId),
+    eq(roms.platform, platform),
+    eq(roms.setNameNormalized, setName),
+  )).limit(1).get()
+}
+
 romRoutes.post('/upload', requireAuth, async (c) => {
   const user = c.get('user')
   const body = await c.req.parseBody({ all: false })
   const file = body.file
   if (!file || typeof file === 'string') return c.json({ error: '未收到文件' }, 400)
-  if (file.size > MAX_SIZE) return c.json({ error: `文件超过 ${Math.round(MAX_SIZE / 1024 / 1024)}MB` }, 413)
-
+  if (file.size > MAX_SIZE) {
+    return c.json({ error: `文件超过 ${Math.max(1, Math.round(MAX_SIZE / 1024 / 1024))}MB` }, 413)
+  }
   const platform = String(body.platform || '')
   if (!ALLOWED_PLATFORMS.has(platform)) return c.json({ error: '不支持的平台' }, 400)
+  const core = await defaultCoreFor(platform)
+  if (!core) return c.json({ error: '该平台尚未配置可用核心' }, 409)
 
-  const titleSchema = z.string().min(1).max(128)
-  const title = titleSchema.safeParse(String(body.title || '').trim() || file.name)
-  if (!title.success) return c.json({ error: '标题格式不正确' }, 400)
+  const titleResult = z.string().min(1).max(128).safeParse(
+    String(body.title || '').trim() || file.name,
+  )
+  if (!titleResult.success) return c.json({ error: '标题格式不正确' }, 400)
 
-  const isPublic = String(body.isPublic || '') === 'true'
-
-  // Optional parent/version linkage. Parent must be an existing ROM the user
-  // can see, on the same platform (arcade clone of arcade, etc).
   let parentRomId = null
   let versionLabel = null
   if (body.parentRomId) {
     const pid = Number(body.parentRomId)
-    if (Number.isFinite(pid) && pid > 0) {
+    if (Number.isInteger(pid) && pid > 0) {
       const parent = (await db.select().from(roms).where(liveRom(eq(roms.id, pid))).limit(1))[0]
       if (!parent) return c.json({ error: '父 ROM 不存在' }, 400)
       if (parent.platform !== platform) return c.json({ error: '父 ROM 平台不匹配' }, 400)
       if (!parent.isPublic && parent.userId !== user.id && user.role !== 'admin') {
         return c.json({ error: '无权引用该父 ROM' }, 403)
       }
-      if (parent.parentRomId) return c.json({ error: '不支持嵌套版本（父 ROM 本身是变体）' }, 400)
-      parentRomId = pid
-      const lbl = String(body.versionLabel || '').trim().slice(0, 64)
-      versionLabel = lbl || '变体'
+      if (parent.parentRomId) return c.json({ error: '不支持嵌套版本' }, 400)
+      parentRomId = parent.id
+      versionLabel = String(body.versionLabel || '').trim().slice(0, 64) || '变体'
     }
   }
 
-  const userDir = join(UPLOADS_DIR, String(user.id), platform)
-  mkdirSync(userDir, { recursive: true })
-  const safeExt = extname(file.name).replace(/[^\w.]/g, '').slice(0, 10) || '.bin'
-  const storedName = `${randomUUID()}${safeExt}`
-  const filePath = join(userDir, storedName)
-  const buf = Buffer.from(await file.arrayBuffer())
-  await writeFile(filePath, buf)
+  const bytes = Buffer.from(await file.arrayBuffer())
+  const archiveSha256 = createHash('sha256').update(bytes).digest('hex')
+  const stored = contentStore.putBytes({
+    bytes,
+    expectedSha256: archiveSha256,
+    expectedSize: bytes.length,
+    kind: 'rom',
+  })
+  const setName = canonicalSetName(file.name)
+  const contentManifestSha256 = hashCanonicalLibraryJson({
+    schemaVersion: 1,
+    kind: 'manual-opaque-v1',
+    archiveName: file.name,
+    archiveSize: bytes.length,
+    archiveSha256,
+  })
 
-  const [row] = await db.insert(roms).values({
-    userId: user.id,
-    title: title.data,
-    platform,
-    fileName: file.name,
-    filePath,
-    fileSize: file.size,
-    isPublic,
-    parentRomId,
-    versionLabel,
-  }).returning()
+  let romId
+  try {
+    romId = db.transaction((tx) => {
+      let rom = existingLogicalRom(tx, user.id, platform, setName)
+      if (!rom) {
+        rom = tx.insert(roms).values({
+          userId: user.id,
+          title: titleResult.data,
+          platform,
+          fileName: file.name,
+          filePath: stored.filePath,
+          fileSize: bytes.length,
+          isPublic: false,
+          parentRomId,
+          setNameNormalized: setName,
+          familyRootSetName: parentRomId ? null : setName,
+          versionLabel,
+        }).returning().get()
+      } else if (rom.parentRomId !== parentRomId) {
+        throw new Error('同名 ROM 已存在且版本归属不同')
+      }
 
-  return c.json(serialize(row))
+      let asset = tx.select().from(assets).where(eq(assets.sha256, stored.sha256)).limit(1).get()
+      if (!asset) {
+        asset = tx.insert(assets).values({
+          kind: 'rom',
+          filePath: stored.filePath,
+          mimeType: file.type || 'application/octet-stream',
+          fileSize: stored.fileSize,
+          sha256: stored.sha256,
+        }).returning().get()
+      }
+
+      const buildFingerprint = computeBuildFingerprint({
+        logicalRomScope: `manual:rom:${rom.id}`,
+        setNameNormalized: setName,
+        coreArtifactFingerprint: core.artifactFingerprint,
+        archiveSha256,
+        contentManifestSha256,
+        archiveLayout: 'standalone',
+        runtimeParentBuildFingerprint: null,
+        biosManifestSha256: core.biosManifestSha256 ?? null,
+      })
+      let build = tx.select().from(romBuilds)
+        .where(eq(romBuilds.buildFingerprint, buildFingerprint)).limit(1).get()
+      if (!build) {
+        build = tx.insert(romBuilds).values({
+          romId: rom.id,
+          coreArtifactId: core.id,
+          archiveAssetId: asset.id,
+          archiveSha256,
+          contentManifestSha256,
+          buildFingerprint,
+          staticStatus: 'complete',
+          archiveLayout: 'standalone',
+        }).returning().get()
+      }
+
+      tx.update(roms).set({
+        title: titleResult.data,
+        fileName: file.name,
+        filePath: stored.filePath,
+        fileSize: bytes.length,
+        isPublic: false,
+        activeBuildId: build.id,
+        status: STATUS.normal,
+      }).where(eq(roms.id, rom.id)).run()
+      return rom.id
+    })
+  } catch (error) {
+    contentStore.cleanupCreated([stored], {
+      isReferenced: () => Boolean(
+        db.select({ id: assets.id }).from(assets).where(eq(assets.sha256, stored.sha256)).limit(1).get(),
+      ),
+    })
+    if (/同名 ROM/.test(error.message)) return c.json({ error: error.message }, 409)
+    throw error
+  }
+  return c.json(await serializeRomById(romId))
 })
 
 romRoutes.patch('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = Number(c.req.param('id'))
-  const rows = await db.select().from(roms).where(liveRom(eq(roms.id, id))).limit(1)
-  const rom = rows[0]
+  const rom = (await db.select().from(roms).where(liveRom(eq(roms.id, id))).limit(1))[0]
   if (!rom) return c.json({ error: '不存在' }, 404)
   if (rom.userId !== user.id && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403)
   const body = await c.req.json().catch(() => ({}))
   const patch = {}
-  if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim()
-  if (typeof body.isPublic === 'boolean') patch.isPublic = body.isPublic
-  if (Object.keys(patch).length === 0) return c.json(serialize(rom))
-  const [updated] = await db.update(roms).set(patch).where(eq(roms.id, id)).returning()
-  return c.json(serialize(updated))
+  if (typeof body.title === 'string' && body.title.trim()) patch.title = body.title.trim().slice(0, 128)
+  if (typeof body.isPublic === 'boolean') {
+    if (body.isPublic && (await serializeRomById(id))?.compatStatus !== 'ready') {
+      return c.json({ error: '构建尚未通过验证，不能公开' }, 409)
+    }
+    patch.isPublic = body.isPublic
+  }
+  if (Object.keys(patch).length > 0) {
+    await db.update(roms).set(patch).where(eq(roms.id, id))
+  }
+  return c.json(await serializeRomById(id))
 })
 
-// DELETE /api/roms/:id
-//   default:           soft-delete (status=deleted, file kept on disk for admin recovery)
-//   ?permanent=1:      hard-delete — unlinks rom file + all save-state files,
-//                      cascade-removes favorites/save_states/rooms rows,
-//                      and also purges any child-version ROMs belonging to this
-//                      parent (kof97 parent → also wipes kof97pls / kof97a).
+async function hardDeleteBlocker(rom, builds) {
+  const buildIds = builds.map((build) => build.id)
+  if ((await db.select({ id: roms.id }).from(roms)
+    .where(eq(roms.parentRomId, rom.id)).limit(1))[0]) {
+    return '存在引用该 ROM 的版本'
+  }
+  if (buildIds.length === 0) return null
+  const checks = [
+    ['存在引用该构建的房间', rooms, rooms.romBuildId],
+    ['存在引用该构建的存档', saveStates, saveStates.romBuildId],
+    ['存在引用该构建的运行时子构建', romBuilds, romBuilds.runtimeParentBuildId],
+    ['存在引用该构建的导入批次', batchBuildRefs, batchBuildRefs.romBuildId],
+    ['存在引用该构建的来源历史', buildSourceMembers, buildSourceMembers.romBuildId],
+    ['存在引用该构建的验证历史', buildValidationRuns, buildValidationRuns.romBuildId],
+  ]
+  for (const [message, table, column] of checks) {
+    if ((await db.select({ id: column }).from(table).where(inArray(column, buildIds)).limit(1))[0]) {
+      return message
+    }
+  }
+  return null
+}
+
+async function assetStillReferenced(assetId) {
+  return countAssetReferences(db.$client, assetId) > 0
+}
+
 romRoutes.delete('/:id', requireAuth, async (c) => {
   const user = c.get('user')
   const id = Number(c.req.param('id'))
-  const permanent = c.req.query('permanent') === '1' || c.req.query('permanent') === 'true'
-
-  // Hard-delete needs to find both live AND already-soft-deleted rows so admins
-  // can purge the trash. Soft-delete path keeps the live-only filter.
-  const finder = permanent
-    ? db.select().from(roms).where(eq(roms.id, id))
-    : db.select().from(roms).where(liveRom(eq(roms.id, id)))
-  const rows = await finder.limit(1)
-  const rom = rows[0]
+  const permanent = ['1', 'true'].includes(c.req.query('permanent'))
+  const rom = (await db.select().from(roms)
+    .where(permanent ? eq(roms.id, id) : liveRom(eq(roms.id, id))).limit(1))[0]
   if (!rom) return c.json({ error: '不存在' }, 404)
   if (rom.userId !== user.id && user.role !== 'admin') return c.json({ error: 'forbidden' }, 403)
-
   if (!permanent) {
     await db.update(roms).set({ status: STATUS.deleted }).where(eq(roms.id, id))
     return c.json({ ok: true, mode: 'soft' })
   }
 
-  // Hard delete path
-  const targets = [rom]
-  // If this is a parent, grab the children too — parentRomId has no FK cascade,
-  // so we must enumerate and wipe them manually.
-  if (!rom.parentRomId) {
-    const children = await db.select().from(roms).where(eq(roms.parentRomId, id))
-    targets.push(...children)
+  const builds = await db.select().from(romBuilds).where(eq(romBuilds.romId, id))
+  const blocker = await hardDeleteBlocker(rom, builds)
+  if (blocker) return c.json({ error: blocker }, 409)
+  const refs = await db.select().from(romAssetRefs).where(eq(romAssetRefs.romId, id))
+  const candidateAssetIds = new Set([
+    ...builds.map((build) => build.archiveAssetId).filter(Number.isInteger),
+    ...refs.map((ref) => ref.assetId),
+  ])
+  db.transaction((tx) => {
+    tx.update(roms).set({ activeBuildId: null, activeThumbnailRefId: null })
+      .where(eq(roms.id, id)).run()
+    tx.delete(romAssetRefs).where(eq(romAssetRefs.romId, id)).run()
+    tx.delete(romBuilds).where(eq(romBuilds.romId, id)).run()
+    tx.delete(roms).where(eq(roms.id, id)).run()
+  })
+  for (const assetId of candidateAssetIds) {
+    if (await assetStillReferenced(assetId)) continue
+    const asset = (await db.select().from(assets).where(eq(assets.id, assetId)).limit(1))[0]
+    if (!asset) continue
+    try { unlinkSync(resolveAssetPath(asset)) } catch {}
+    await db.delete(assets).where(eq(assets.id, assetId))
   }
-
-  // Purge on-disk artifacts first (rom files + save state blobs for each target)
-  const { saveStates } = await import('../db/schema.js')
-  for (const t of targets) {
-    // save-state files
-    const states = await db.select().from(saveStates).where(eq(saveStates.romId, t.id))
-    for (const s of states) {
-      try { unlinkSync(s.filePath) } catch {}
-    }
-    // the rom file itself
-    try { unlinkSync(t.filePath) } catch {}
-  }
-
-  // DB: children first, then the parent. FK cascades remove favorites/save_states/rooms.
-  for (const t of targets) {
-    if (t.id !== rom.id) await db.delete(roms).where(eq(roms.id, t.id))
-  }
-  await db.delete(roms).where(eq(roms.id, rom.id))
-
-  return c.json({ ok: true, mode: 'permanent', purgedCount: targets.length })
+  return c.json({ ok: true, mode: 'permanent', purgedCount: builds.length })
 })
 
-async function serveRomFile(c) {
-  const id = Number(c.req.param('id'))
-  const rows = await db.select().from(roms).where(liveRom(eq(roms.id, id))).limit(1)
-  const rom = rows[0]
-  if (!rom) return c.json({ error: 'not found' }, 404)
+async function roomHostCanRead(user, buildId) {
+  if (!user) return false
+  return Boolean((await db.select({ id: rooms.id }).from(rooms).where(and(
+    eq(rooms.romBuildId, buildId),
+    eq(rooms.hostUserId, user.id),
+    eq(rooms.status, STATUS.normal),
+    isNull(rooms.closedAt),
+  )).limit(1))[0])
+}
 
-  // Gating: playing normally requires a logged-in account. Admins can opt in
-  // to guest play via the `guestPlayEnabled` setting — anonymous visitors
-  // then get to boot PUBLIC ROMs only (no save-states, no netplay; those
-  // still require auth elsewhere).
+async function authorizeBuild(c, build) {
   const user = await currentUser(c)
-  if (!user) {
-    const guestOk = (await getSetting('guestPlayEnabled', '0')) === '1'
-    if (!guestOk) return c.json({ error: '请先登录' }, 401)
-    if (!rom.isPublic) return c.json({ error: '该 ROM 非公开' }, 403)
-  } else if (!rom.isPublic && user.id !== rom.userId && user.role !== 'admin') {
-    return c.json({ error: 'forbidden' }, 403)
+  if (user?.role === 'admin') return { ok: true, user }
+  if (await roomHostCanRead(user, build.id)) return { ok: true, user }
+  if (build._rom.activeBuildId !== build.id) {
+    return { ok: false, status: 404, error: 'not found' }
   }
+  if (build._rom.status !== STATUS.normal) {
+    return { ok: false, status: 404, error: 'not found' }
+  }
+  if (build._rom.userId === user?.id) return { ok: true, user }
+  if (!publicBuild(build, build._rom)) {
+    return { ok: false, status: user ? 403 : 401, error: user ? 'forbidden' : '请先登录' }
+  }
+  if (user) return { ok: true, user }
+  if ((await getSetting('guestPlayEnabled', '0')) === '1') return { ok: true, user: null }
+  return { ok: false, status: 401, error: '请先登录' }
+}
 
-  const st = statSync(rom.filePath)
-  c.header('Content-Type', 'application/octet-stream')
-  c.header('Content-Length', String(st.size))
-  c.header('Content-Disposition', `inline; filename="${encodeURIComponent(rom.fileName)}"`)
-  return stream(c, async (s) => {
-    const fileStream = createReadStream(rom.filePath)
-    await s.pipe(new ReadableStream({
+async function exactBuild(id) {
+  return (await hydrateBuilds([id])).get(id) ?? null
+}
+
+romBuildRoutes.get('/:buildId/file/:name', async (c) => {
+  const requestedBuildId = Number(c.req.param('buildId'))
+  const rootBuildId = Number(c.req.query('forBuild') || requestedBuildId)
+  const root = await exactBuild(rootBuildId)
+  if (!root) return c.json({ error: 'not found' }, 404)
+  const access = await authorizeBuild(c, root)
+  if (!access.ok) return c.json({ error: access.error }, access.status)
+  const archive = root.archives.find((candidate) => candidate.buildId === requestedBuildId)
+  if (!archive || archive.fileName !== c.req.param('name')) {
+    return c.json({ error: 'not found' }, 404)
+  }
+  const asset = root._archiveAssets.get(requestedBuildId)
+  if (!asset) return c.json({ error: 'not found' }, 404)
+  let fullPath
+  let metadata
+  try {
+    fullPath = resolveAssetPath(asset)
+    metadata = statSync(fullPath)
+  } catch {
+    return c.json({ error: 'not found' }, 404)
+  }
+  c.header('Content-Type', asset.mimeType || 'application/octet-stream')
+  c.header('Content-Length', String(metadata.size))
+  c.header('Content-Disposition', `inline; filename="${encodeURIComponent(archive.fileName)}"`)
+  c.header('ETag', `"${asset.sha256}"`)
+  c.header('Cache-Control', 'private, max-age=31536000, immutable')
+  return stream(c, async (target) => {
+    const source = createReadStream(fullPath)
+    await target.pipe(new ReadableStream({
       start(controller) {
-        fileStream.on('data', (chunk) => controller.enqueue(chunk))
-        fileStream.on('end', () => controller.close())
-        fileStream.on('error', (err) => controller.error(err))
+        source.on('data', (chunk) => controller.enqueue(chunk))
+        source.on('end', () => controller.close())
+        source.on('error', (error) => controller.error(error))
       },
     }))
   })
-}
+})
 
-romRoutes.get('/:id/file', serveRomFile)
-// Alias with the filename as the last segment — lets FBNeo / MAME pick up the
-// romset name from the URL (the :name segment is cosmetic, content comes from DB).
-romRoutes.get('/:id/file/:name', serveRomFile)
+romBuildRoutes.get('/:buildId', async (c) => {
+  const id = Number(c.req.param('buildId'))
+  const build = await exactBuild(id)
+  if (!build) return c.json({ error: 'not found' }, 404)
+  const access = await authorizeBuild(c, build)
+  if (!access.ok) return c.json({ error: access.error }, access.status)
+  return c.json({ build: publicBuildView(build) })
+})
+
+romRoutes.get('/:id/thumbnail', async (c) => {
+  const id = Number(c.req.param('id'))
+  const version = String(c.req.query('v') || '').toLowerCase()
+  if (!SHA256_PATTERN.test(version)) return c.json({ error: 'not found' }, 404)
+  const rom = (await db.select().from(roms).where(eq(roms.id, id)).limit(1))[0]
+  if (!rom?.activeThumbnailRefId) return c.json({ error: 'not found' }, 404)
+  const ref = (await db.select().from(romAssetRefs)
+    .where(and(eq(romAssetRefs.id, rom.activeThumbnailRefId), eq(romAssetRefs.romId, id)))
+    .limit(1))[0]
+  const asset = ref
+    ? (await db.select().from(assets).where(eq(assets.id, ref.assetId)).limit(1))[0]
+    : null
+  if (!asset || asset.sha256 !== version) return c.json({ error: 'not found' }, 404)
+  const build = rom.activeBuildId ? await exactBuild(rom.activeBuildId) : null
+  const user = await currentUser(c)
+  if (
+    user?.role !== 'admin' &&
+    user?.id !== rom.userId &&
+    !(build && publicBuild(build, rom))
+  ) {
+    return c.json({ error: user ? 'forbidden' : 'unauthorized' }, user ? 403 : 401)
+  }
+  let fullPath
+  let metadata
+  try {
+    fullPath = resolveAssetPath(asset)
+    metadata = statSync(fullPath)
+  } catch {
+    return c.json({ error: 'not found' }, 404)
+  }
+  c.header('Content-Type', asset.mimeType || 'image/webp')
+  c.header('Content-Length', String(metadata.size))
+  c.header('ETag', `"${asset.sha256}"`)
+  c.header('Cache-Control', 'public, max-age=31536000, immutable')
+  return stream(c, async (target) => {
+    const source = createReadStream(fullPath)
+    await target.pipe(new ReadableStream({
+      start(controller) {
+        source.on('data', (chunk) => controller.enqueue(chunk))
+        source.on('end', () => controller.close())
+        source.on('error', (error) => controller.error(error))
+      },
+    }))
+  })
+})
