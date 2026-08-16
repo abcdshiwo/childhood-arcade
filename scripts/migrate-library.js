@@ -18,19 +18,9 @@ import {
   backfillLegacyLibrary,
   stringifyLegacyBackfillEvidence,
 } from '../server/services/legacy-backfill.js'
+import { contractLibraryDatabase } from '../server/db/contract-runner.js'
 
 const MODES = new Set(['status', 'expand', 'backfill', 'contract', 'all'])
-
-function unavailable(mode) {
-  if (mode === 'contract') {
-    throw new Error(
-      'contract is not available until Task 3 installs the verified backup and contract runner; no destructive SQL was executed',
-    )
-  }
-  throw new Error(
-    'all is not available until Task 3 installs the verified backup and contract runner; no destructive SQL was executed',
-  )
-}
 
 function readOption(argv, name) {
   const index = argv.indexOf(name)
@@ -42,7 +32,12 @@ function readOption(argv, name) {
 
 function parseArguments(argv) {
   const [mode, ...options] = argv
-  const valueOptions = new Set(['--db', '--manifest', '--asset-root'])
+  const valueOptions = new Set([
+    '--db',
+    '--manifest',
+    '--asset-root',
+    '--backup',
+  ])
   for (let index = 0; index < options.length; index += 1) {
     const argument = options[index]
     if (argument === '--apply') continue
@@ -52,8 +47,14 @@ function parseArguments(argv) {
     }
     throw new Error(`unknown argument: ${argument}`)
   }
-  if (options.includes('--apply') && mode !== 'backfill') {
-    throw new Error('--apply is supported only for backfill until Task 3 is installed')
+  if (
+    options.includes('--apply') &&
+    !['backfill', 'contract', 'all'].includes(mode)
+  ) {
+    throw new Error('--apply is supported only for backfill, contract, or all')
+  }
+  if (options.includes('--backup') && !['contract', 'all'].includes(mode)) {
+    throw new Error('--backup is supported only for contract or all')
   }
   return {
     mode,
@@ -61,6 +62,7 @@ function parseArguments(argv) {
     dbPath: readOption(options, '--db'),
     manifestPath: readOption(options, '--manifest'),
     assetRoot: readOption(options, '--asset-root'),
+    backupPath: readOption(options, '--backup'),
   }
 }
 
@@ -83,21 +85,55 @@ function statusPayload(sqlite, migrationsFolder) {
   }
 }
 
-export function runLibraryMigrationCommand({
+export async function runLibraryMigrationCommand({
   mode,
   dbPath = process.env.DB_PATH || 'data/app.db',
   migrationsFolder = DEFAULT_MIGRATIONS_FOLDER,
   manifestPath = process.env.LEGACY_LIBRARY_MANIFEST_PATH,
   assetRoot = process.env.LIBRARY_ASSET_ROOT,
+  backupPath = process.env.LIBRARY_CONTRACT_BACKUP_PATH,
   apply = false,
 } = {}) {
   if (!MODES.has(mode)) {
     throw new Error(`usage: node scripts/migrate-library.js ${[...MODES].join('|')}`)
   }
-  if (mode === 'contract' || mode === 'all') unavailable(mode)
+  if (['contract', 'all'].includes(mode) && !apply) {
+    throw new Error(`${mode} requires --apply`)
+  }
+  if (mode === 'all' && !backupPath) {
+    throw new Error(
+      `${mode} requires --backup or LIBRARY_CONTRACT_BACKUP_PATH`,
+    )
+  }
 
   const absoluteDbPath = resolve(dbPath)
-  if (mode === 'expand') mkdirSync(dirname(absoluteDbPath), { recursive: true })
+  if (mode === 'contract') {
+    if (!backupPath) {
+      const probe = new Database(absoluteDbPath, {
+        readonly: true,
+        fileMustExist: true,
+      })
+      let phase
+      try {
+        phase = readLibraryMigrationState(probe).phase
+      } finally {
+        probe.close()
+      }
+      if (phase !== 'contracted') {
+        throw new Error(
+          'contract requires --backup or LIBRARY_CONTRACT_BACKUP_PATH',
+        )
+      }
+    }
+    return contractLibraryDatabase({
+      dbPath: absoluteDbPath,
+      backupPath,
+      migrationsFolder,
+    })
+  }
+  if (mode === 'expand' || mode === 'all') {
+    mkdirSync(dirname(absoluteDbPath), { recursive: true })
+  }
   const sqlite =
     mode === 'status' || mode === 'backfill'
       ? new Database(absoluteDbPath, {
@@ -106,7 +142,7 @@ export function runLibraryMigrationCommand({
         })
       : new Database(absoluteDbPath)
   try {
-    if (mode === 'expand') {
+    if (mode === 'expand' || mode === 'all') {
       sqlite.pragma('foreign_keys = ON')
       expandLibraryDatabase(sqlite, { migrationsFolder })
     }
@@ -119,21 +155,57 @@ export function runLibraryMigrationCommand({
         apply,
       })
     }
+    if (mode === 'all') {
+      const state = readLibraryMigrationState(sqlite)
+      let backfill
+      if (state.phase === 'expanded') {
+        backfill = backfillLegacyLibrary({
+          sqlite,
+          manifestPath,
+          assetRoot,
+          apply: true,
+        })
+      } else if (state.phase === 'backfilled') {
+        backfill = 'already-backfilled'
+      } else if (state.phase === 'contracted') {
+        backfill = 'already-contracted'
+      } else {
+        throw new Error(`all cannot continue from migration phase ${state.phase}`)
+      }
+      sqlite.close()
+      const contract = await contractLibraryDatabase({
+        dbPath: absoluteDbPath,
+        backupPath,
+        migrationsFolder,
+      })
+      return {
+        schemaVersion: 1,
+        kind: 'arcade-library-all-evidence-v1',
+        steps: {
+          expand: 'verified',
+          backfill,
+          contract: contract.noop ? 'verified-contracted' : 'applied',
+        },
+        contract,
+      }
+    }
     return statusPayload(sqlite, migrationsFolder)
   } finally {
-    sqlite.close()
+    if (sqlite.open) sqlite.close()
   }
 }
 
-export function main(argv = process.argv.slice(2)) {
+export async function main(argv = process.argv.slice(2)) {
   try {
     const parsed = parseArguments(argv)
-    const result = runLibraryMigrationCommand({
+    const result = await runLibraryMigrationCommand({
       ...parsed,
       dbPath: parsed.dbPath ?? process.env.DB_PATH ?? 'data/app.db',
       manifestPath:
         parsed.manifestPath ?? process.env.LEGACY_LIBRARY_MANIFEST_PATH,
       assetRoot: parsed.assetRoot ?? process.env.LIBRARY_ASSET_ROOT,
+      backupPath:
+        parsed.backupPath ?? process.env.LIBRARY_CONTRACT_BACKUP_PATH,
     })
     process.stdout.write(
       parsed.mode === 'backfill'
@@ -142,11 +214,27 @@ export function main(argv = process.argv.slice(2)) {
     )
     return 0
   } catch (error) {
-    process.stderr.write(`[migrate-library] ${error.message}\n`)
+    if (error.contractEvidence) {
+      process.stderr.write(
+        `${JSON.stringify(
+          {
+            ok: false,
+            error: error.message,
+            evidence: error.contractEvidence,
+          },
+          null,
+          2,
+        )}\n`,
+      )
+    } else {
+      process.stderr.write(`[migrate-library] ${error.message}\n`)
+    }
     return 1
   }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = main()
+  main().then((code) => {
+    process.exitCode = code
+  })
 }

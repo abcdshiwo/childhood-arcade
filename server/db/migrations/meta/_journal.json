@@ -15,6 +15,13 @@
       "when": 1786768951151,
       "tag": "0001_arcade_library_expand",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786768952151,
+      "tag": "0002_arcade_library_contract_baseline",
+      "breakpoints": true
     }
   ]
 }

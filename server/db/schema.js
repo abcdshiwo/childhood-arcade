@@ -1,5 +1,6 @@
 import {
   check,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -53,7 +54,7 @@ export const rooms = sqliteTable('rooms', {
   code: text('code').notNull().unique(),
   hostUserId: integer('host_user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   romId: integer('rom_id').notNull().references(() => roms.id, { onDelete: 'cascade' }),
-  romBuildId: integer('rom_build_id'),
+  romBuildId: integer('rom_build_id').notNull(),
   name: text('name').notNull(),
   isPublic: integer('is_public', { mode: 'boolean' }).notNull().default(true),
   allowPlay: integer('allow_play', { mode: 'boolean' }).notNull().default(true),
@@ -62,7 +63,13 @@ export const rooms = sqliteTable('rooms', {
   createdAt: ts('created_at'),
   updatedAt: ts('updated_at').$onUpdateFn(() => new Date()),
   closedAt: tsNullable('closed_at'),
-})
+}, (t) => [
+  foreignKey({
+    name: 'rooms_build_ownership_fk',
+    columns: [t.romBuildId, t.romId],
+    foreignColumns: [romBuilds.id, romBuilds.romId],
+  }).onDelete('restrict'),
+])
 
 export const roms = sqliteTable('roms', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -77,8 +84,8 @@ export const roms = sqliteTable('roms', {
   // on shared data from the parent (e.g. kof97pls is a split clone of kof97).
   // Children are hidden from the main Gallery list and shown as a version
   // picker on the parent's detail. `null` = this ROM is a top-level game.
-  parentRomId: integer('parent_rom_id'),
-  setNameNormalized: text('set_name_normalized'),
+  parentRomId: integer('parent_rom_id').references(() => roms.id, { onDelete: 'restrict' }),
+  setNameNormalized: text('set_name_normalized').notNull(),
   variantKind: text('variant_kind'),
   datParentSetName: text('dat_parent_set_name'),
   familyRootSetName: text('family_root_set_name'),
@@ -89,9 +96,32 @@ export const roms = sqliteTable('roms', {
   createdAt: ts('created_at'),
   updatedAt: ts('updated_at').$onUpdateFn(() => new Date()),
 }, (t) => [
+  uniqueIndex('roms_owner_platform_set_unique').on(
+    t.userId,
+    t.platform,
+    t.setNameNormalized,
+  ),
   index('idx_roms_parent').on(t.parentRomId),
   index('idx_roms_active_build').on(t.activeBuildId),
   index('idx_roms_active_thumbnail').on(t.activeThumbnailRefId),
+  foreignKey({
+    name: 'roms_active_build_ownership_fk',
+    columns: [t.activeBuildId, t.id],
+    foreignColumns: [romBuilds.id, romBuilds.romId],
+  }).onDelete('restrict'),
+  foreignKey({
+    name: 'roms_active_thumbnail_ownership_fk',
+    columns: [t.activeThumbnailRefId, t.id],
+    foreignColumns: [romAssetRefs.id, romAssetRefs.romId],
+  }).onDelete('restrict'),
+  check(
+    'roms_set_name_normalized_check',
+    sql`length(${t.setNameNormalized}) > 0 AND ${t.setNameNormalized} COLLATE BINARY = lower(${t.setNameNormalized})`,
+  ),
+  check(
+    'roms_variant_kind_check',
+    sql`${t.variantKind} IS NULL OR ${t.variantKind} IN ('official', 'hack', 'bootleg')`,
+  ),
 ])
 
 export const favorites = sqliteTable('favorites', {
@@ -108,16 +138,22 @@ export const saveStates = sqliteTable('save_states', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   romId: integer('rom_id').notNull().references(() => roms.id, { onDelete: 'cascade' }),
-  romBuildId: integer('rom_build_id'),
-  buildFingerprint: text('build_fingerprint'),
-  coreArtifactFingerprint: text('core_artifact_fingerprint'),
-  contentManifestSha256: text('content_manifest_sha256'),
+  romBuildId: integer('rom_build_id').notNull(),
+  buildFingerprint: text('build_fingerprint').notNull(),
+  coreArtifactFingerprint: text('core_artifact_fingerprint').notNull(),
+  contentManifestSha256: text('content_manifest_sha256').notNull(),
   slot: integer('slot').notNull().default(0),
   filePath: text('file_path').notNull(),
   fileSize: integer('file_size').notNull(),
   status: integer('status').notNull().default(STATUS.normal),
   updatedAt: ts('updated_at').$onUpdateFn(() => new Date()),
-})
+}, (t) => [
+  foreignKey({
+    name: 'save_states_build_ownership_fk',
+    columns: [t.romBuildId, t.romId],
+    foreignColumns: [romBuilds.id, romBuilds.romId],
+  }).onDelete('restrict'),
+])
 
 export const assets = sqliteTable('assets', {
   id: integer('id').primaryKey({ autoIncrement: true }),

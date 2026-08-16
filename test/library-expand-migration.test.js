@@ -798,7 +798,7 @@ test('runtime requires the contract baseline immediately after expand', (t) => {
   assert.equal(tableNames(sqlite).includes('future_probe'), false)
 })
 
-test('contracted runtime still accepts the known baseline line-ending hash variant', (t) => {
+test('runtime accepts the baseline line-ending variant but rejects a fake contract marker', (t) => {
   const { sqlite, directory } = openDatabase(t)
   const contractedMigrations = join(directory, 'migrations-contracted')
   copyExpandMigrationFixture(contractedMigrations)
@@ -840,15 +840,18 @@ test('contracted runtime still accepts the known baseline line-ending hash varia
     .run(alternateHash, baseline.folderMillis)
 
   const warnings = []
-  const result = prepareDatabaseForRuntime(sqlite, {
-    migrationsFolder: contractedMigrations,
-    onWarning: (warning) => warnings.push(warning),
-  })
-  assert.equal(result.state.phase, 'contracted')
+  assert.throws(
+    () =>
+      prepareDatabaseForRuntime(sqlite, {
+        migrationsFolder: contractedMigrations,
+        onWarning: (warning) => warnings.push(warning),
+      }),
+    /0002_snapshot|contracted schema|marker|ENOENT/i,
+  )
   assert.ok(warnings.length >= 1)
 })
 
-test('migration CLI exposes status/expand/backfill and keeps Task 3 modes closed', (t) => {
+test('migration CLI exposes every phase and gates destructive modes with apply/backup', (t) => {
   const { path } = openDatabase(t)
   const run = (mode) =>
     spawnSync(process.execPath, ['scripts/migrate-library.js', mode], {
@@ -874,10 +877,19 @@ test('migration CLI exposes status/expand/backfill and keeps Task 3 modes closed
     /LEGACY_LIBRARY_MANIFEST_PATH|--manifest/i,
   )
 
-  for (const mode of ['contract', 'all']) {
-    const result = run(mode)
+  for (const [mode, args, expected] of [
+    ['contract', ['contract'], /--apply/i],
+    ['all', ['all', '--apply'], /--backup/i],
+  ]) {
+    const result = spawnSync(process.execPath, ['scripts/migrate-library.js', ...args], {
+      cwd: PROJECT_ROOT,
+      env: { ...process.env, DB_PATH: path },
+      encoding: 'utf8',
+      timeout: 10_000,
+      windowsHide: true,
+    })
     assert.notEqual(result.status, 0, `${mode} unexpectedly succeeded`)
-    assert.match(`${result.stdout}\n${result.stderr}`, /not available until Task [23]/i)
+    assert.match(`${result.stdout}\n${result.stderr}`, expected)
   }
 })
 
@@ -1013,7 +1025,7 @@ test('Task 1 contract SQL is inert, fail-closed, and outside runtime migrations'
   assert.doesNotMatch(runtimeRunner, /contract-migrations/)
 })
 
-test('checked-in expanded snapshot produces no new drizzle migration', (t) => {
+test('checked-in contracted snapshot produces no new drizzle migration', (t) => {
   const scratchRoot = join(PROJECT_ROOT, '.superpowers', 'test-tmp')
   mkdirSync(scratchRoot, { recursive: true })
   const directory = mkdtempSync(join(scratchRoot, 'drizzle-generate-'))

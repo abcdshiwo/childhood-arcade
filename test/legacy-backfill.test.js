@@ -1883,7 +1883,7 @@ test('backfill rejects absent, contracted, and invalid phases', (t) => {
   )
 })
 
-test('dedicated and migration CLIs default to dry-run, require --apply, and keep Task 3 modes closed', (t) => {
+test('dedicated and migration CLIs default to dry-run and enforce contract apply/backup gates', (t) => {
   const fixture = makeFixture(t)
   const run = (script, args) =>
     spawnSync(process.execPath, [script, ...args], {
@@ -1914,12 +1914,68 @@ test('dedicated and migration CLIs default to dry-run, require --apply, and keep
   assert.equal(applied.status, 0, applied.stderr)
   assert.equal(JSON.parse(applied.stdout).mode, 'apply')
 
-  for (const [mode, args] of [
-    ['contract', ['contract']],
-    ['all', ['all', '--apply']],
+  for (const [mode, args, expected] of [
+    ['contract', ['contract'], /--apply/i],
+    ['all', ['all', '--apply'], /--backup/i],
   ]) {
     const result = run('scripts/migrate-library.js', args)
     assert.notEqual(result.status, 0, `${mode} unexpectedly succeeded`)
-    assert.match(`${result.stdout}\n${result.stderr}`, /Task 3|not available/i)
+    assert.match(`${result.stdout}\n${result.stderr}`, expected)
+  }
+})
+
+test('migration CLI all runs expanded through real backfill, backup, and contract', (t) => {
+  const fixture = makeFixture(t)
+  const backupPath = join(fixture.directory, 'before-contract.sqlite')
+  fixture.sqlite.close()
+
+  const result = spawnSync(
+    process.execPath,
+    [
+      'scripts/migrate-library.js',
+      'all',
+      '--apply',
+      '--backup',
+      backupPath,
+    ],
+    {
+      cwd: PROJECT_ROOT,
+      env: {
+        ...process.env,
+        DB_PATH: fixture.dbPath,
+        LEGACY_LIBRARY_MANIFEST_PATH: fixture.manifestPath,
+        LIBRARY_ASSET_ROOT: fixture.assetRoot,
+      },
+      encoding: 'utf8',
+      timeout: 30_000,
+      windowsHide: true,
+    },
+  )
+  assert.equal(result.status, 0, result.stderr)
+  const evidence = JSON.parse(result.stdout)
+  assert.equal(evidence.kind, 'arcade-library-all-evidence-v1')
+  assert.equal(evidence.steps.backfill.mode, 'apply')
+  assert.equal(evidence.contract.phase.after, 'contracted')
+  assert.equal(existsSync(backupPath), true)
+
+  const contracted = new Database(fixture.dbPath, {
+    readonly: true,
+    fileMustExist: true,
+  })
+  try {
+    assert.equal(readLibraryMigrationState(contracted).phase, 'contracted')
+    assert.equal(contracted.pragma('integrity_check', { simple: true }), 'ok')
+    assert.deepEqual(contracted.prepare('PRAGMA foreign_key_check').all(), [])
+  } finally {
+    contracted.close()
+  }
+  const backup = new Database(backupPath, {
+    readonly: true,
+    fileMustExist: true,
+  })
+  try {
+    assert.equal(readLibraryMigrationState(backup).phase, 'backfilled')
+  } finally {
+    backup.close()
   }
 })

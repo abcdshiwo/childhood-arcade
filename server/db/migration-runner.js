@@ -5,6 +5,14 @@ import { fileURLToPath } from 'node:url'
 
 import { readMigrationFiles } from 'drizzle-orm/migrator'
 
+import {
+  assertContractedSchema as assertRuntimeContractedSchema,
+  assertContractOwnershipSchema,
+  computeContractSchemaSha256,
+} from './contract-schema.js'
+
+export { computeContractSchemaSha256 } from './contract-schema.js'
+
 export const BASELINE_MIGRATION_TAG = '0000_baseline'
 export const EXPAND_MIGRATION_TAG = '0001_arcade_library_expand'
 export const CONTRACT_BASELINE_TAG = '0002_arcade_library_contract_baseline'
@@ -607,7 +615,7 @@ export function prepareDatabaseForRuntime(
   if (state.phase !== 'contracted') {
     throw new Error(
       `Database library migration phase is "${state.phase}"; runtime requires "contracted". ` +
-        'Run "node scripts/migrate-library.js backfill" and then "node scripts/migrate-library.js contract" with an implementation that provides Tasks 2 and 3.',
+        'Run "node scripts/migrate-library.js backfill --apply" and then "node scripts/migrate-library.js contract --apply --backup <absolute-new-path>".',
     )
   }
 
@@ -622,11 +630,27 @@ export function prepareDatabaseForRuntime(
     allowLegacyBaselineHashMismatch: false,
     onWarning,
   })
+  const futureEntries = entries.slice(contractIndex + 1)
+  const appliedTimestamps = new Set(
+    readMigrationLedger(sqlite).map(({ createdAt }) => Number(createdAt)),
+  )
+  if (
+    futureEntries.some(({ folderMillis }) =>
+      appliedTimestamps.has(Number(folderMillis)),
+    )
+  ) {
+    assertContractOwnershipSchema(sqlite, { migrationsFolder })
+  } else {
+    assertRuntimeContractedSchema(sqlite, { migrationsFolder })
+  }
 
-  applyMigrationEntries(sqlite, entries.slice(contractIndex + 1), {
+  applyMigrationEntries(sqlite, futureEntries, {
     allowLegacyBaselineHashMismatch: true,
     manifestEntries: entries,
     onWarning,
   })
-  return { state, ledger: readMigrationLedger(sqlite) }
+  const contractSchema = assertContractOwnershipSchema(sqlite, {
+    migrationsFolder,
+  })
+  return { state, ledger: readMigrationLedger(sqlite), contractSchema }
 }
