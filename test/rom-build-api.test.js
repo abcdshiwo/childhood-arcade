@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -546,6 +547,29 @@ test('a room host can still read the exact retired build locked by an open room'
   assert.equal(denied.status, 404)
 })
 
+test('reupload keeps retired build archive names immutable', async () => {
+  const form = new FormData()
+  form.set('title', 'Room Game Replacement')
+  form.set('platform', 'arcade')
+  form.set('file', new Blob(['next'], { type: 'application/octet-stream' }), 'room_game.7z')
+
+  const uploaded = await json('/api/roms/upload', {
+    method: 'POST',
+    token: 'owner-token',
+    body: form,
+  })
+  assert.equal(uploaded.response.status, 200)
+  assert.equal(uploaded.data.id, 106, 'same owner/platform/set reuses the logical ROM')
+
+  const retired = await json('/api/rom-builds/1006', { token: 'owner-token' })
+  assert.equal(retired.response.status, 200)
+  assert.equal(retired.data.build.archives[0].fileName, 'room_game.zip')
+  assert.match(
+    retired.data.build.archives[0].url,
+    /^\/api\/rom-builds\/1006\/file\/room_game\.zip\?forBuild=1006$/,
+  )
+})
+
 test('core and BIOS artifact URLs are pinned to the build artifact and content hashes', async () => {
   const { data } = await json('/api/rom-builds/1002', { token: 'owner-token' })
   const { core } = data.build
@@ -598,6 +622,33 @@ test('normal upload creates one private unverified logical ROM, asset, and manua
   assert.equal(build.archive_layout, 'standalone')
   assert.equal(asset.sha256, sha256('zip!'))
   assert.deepEqual(readFileSync(assetPath(asset.sha256)), Buffer.from('zip!'))
+})
+
+test('manual variant upload creates a split build pinned to the active parent build', async () => {
+  const form = new FormData()
+  form.set('title', 'Manual Split Variant')
+  form.set('platform', 'arcade')
+  form.set('parentRomId', '101')
+  form.set('versionLabel', 'Manual Clone')
+  form.set('file', new Blob(['part'], { type: 'application/zip' }), 'manual_clone.zip')
+
+  const { response, data } = await json('/api/roms/upload', {
+    method: 'POST',
+    token: 'owner-token',
+    body: form,
+  })
+  assert.equal(response.status, 200)
+  assert.equal(data.parentRomId, 101)
+  assert.equal(data.familyRootSetName, 'parent')
+  assert.equal(data.archiveLayout, 'split')
+  assert.equal(data.activeBuild.runtimeParentBuildId, 1001)
+  assert.deepEqual(
+    data.activeBuild.archives.map(({ buildId, role, fileName }) => ({ buildId, role, fileName })),
+    [
+      { buildId: 1001, role: 'parent', fileName: 'parent.zip' },
+      { buildId: data.buildId, role: 'primary', fileName: 'manual_clone.zip' },
+    ],
+  )
 })
 
 test('ordinary HTTP upload retains its configured size limit', async () => {
@@ -670,6 +721,120 @@ test('hard delete rejects builds referenced by runtime children or rooms', async
   assert.equal(roomLocked.response.status, 409)
   assert.match(roomLocked.data.error, /房间|引用|build/i)
   assert.equal(db.$client.prepare('SELECT COUNT(*) AS n FROM roms WHERE id IN (101, 106)').get().n, 2)
+})
+
+test('hard delete rejects builds retained by import operation history', async () => {
+  db.$client.prepare(`
+    INSERT INTO import_batches
+      (id, owner_user_id, cold_source_sha256, manifest_sha256,
+       planned_count, actual_count, total_bytes, status)
+    VALUES ('history-batch', 1, ?, ?, 1, 1, 1, 'committed_private')
+  `).run(sha256('cold-source'), sha256('manifest'))
+  db.$client.prepare(`
+    INSERT INTO import_operations
+      (import_batch_id, sequence, operation_kind, entity_type,
+       entity_key, before_json, after_json)
+    VALUES ('history-batch', 1, 'create', 'rom_build', '1009', NULL, ?)
+  `).run(JSON.stringify({ id: 1009, romId: 107 }))
+
+  const blocked = await json('/api/roms/107?permanent=1', {
+    method: 'DELETE',
+    token: 'owner-token',
+  })
+  assert.equal(blocked.response.status, 409)
+  assert.match(blocked.data.error, /导入|历史|回滚|引用/)
+  assert.equal(db.$client.prepare('SELECT COUNT(*) AS n FROM rom_builds WHERE id = 1009').get().n, 1)
+})
+
+test('ROM, core, and BIOS routes reject a symlink or junction below the asset root', async (t) => {
+  const outside = join(fixtureDirectory, 'route-escape-target')
+  const link = join(assetRoot, 'route-escape')
+  mkdirSync(outside, { recursive: true })
+  try {
+    symlinkSync(outside, link, process.platform === 'win32' ? 'junction' : 'dir')
+  } catch (error) {
+    if (['EPERM', 'EACCES', 'ENOSYS'].includes(error.code)) {
+      t.skip(`symlink/junction creation unavailable: ${error.code}`)
+      return
+    }
+    throw error
+  }
+
+  const escapedAssets = [
+    { id: 9001, kind: 'core_js', name: 'escape.js', bytes: Buffer.from('escaped-js'), mimeType: 'application/javascript' },
+    { id: 9002, kind: 'core_wasm', name: 'escape.wasm', bytes: Buffer.from('escaped-wasm'), mimeType: 'application/wasm' },
+    { id: 9003, kind: 'bios', name: 'escape.zip', bytes: Buffer.from('escaped-bios'), mimeType: 'application/zip' },
+    { id: 9004, kind: 'rom', name: 'escape-rom.zip', bytes: Buffer.from('escaped-rom'), mimeType: 'application/zip' },
+  ].map((asset) => ({ ...asset, sha: sha256(asset.bytes) }))
+  for (const asset of escapedAssets) {
+    writeFileSync(join(outside, asset.name), asset.bytes)
+    db.$client.prepare(`
+      INSERT INTO assets (id, kind, file_path, mime_type, file_size, sha256)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      asset.id,
+      asset.kind,
+      `route-escape/${asset.name}`,
+      asset.mimeType,
+      asset.bytes.length,
+      asset.sha,
+    )
+  }
+
+  const [jsAsset, wasmAsset, biosAsset, romAsset] = escapedAssets
+  const coreFingerprint = sha256('escape-core')
+  db.$client.prepare(`
+    INSERT INTO core_artifacts
+      (id, core_name, display_version, js_asset_id, js_sha256,
+       wasm_asset_id, wasm_sha256, artifact_fingerprint, provenance_json, is_enabled)
+    VALUES (9000, 'escape_core', 'test', ?, ?, ?, ?, ?, ?, 1)
+  `).run(
+    jsAsset.id,
+    jsAsset.sha,
+    wasmAsset.id,
+    wasmAsset.sha,
+    coreFingerprint,
+    JSON.stringify({
+      bios: {
+        members: [{
+          fileName: 'escape.zip',
+          assetId: biosAsset.id,
+          sha256: biosAsset.sha,
+        }],
+      },
+    }),
+  )
+  insertRom(db.$client, {
+    id: 900,
+    title: 'Escaped Route Fixture',
+    setName: 'escape_route',
+    isPublic: false,
+  })
+  insertBuild(db.$client, {
+    id: 9000,
+    romId: 900,
+    coreArtifactId: 9000,
+    archive: romAsset,
+  })
+
+  let responses
+  try {
+    responses = await Promise.all([
+      request('/api/rom-builds/9000/file/escape_route.zip?forBuild=9000', { token: 'owner-token' }),
+      request(`/api/cores/${coreFingerprint}/${jsAsset.sha}/escape_core.js`),
+      request(`/api/bios/${coreFingerprint}/${biosAsset.sha}/escape.zip`),
+    ])
+    await Promise.all(responses.map((response) => response.arrayBuffer()))
+  } finally {
+    db.$client.prepare('UPDATE roms SET active_build_id = NULL WHERE id = 900').run()
+    db.$client.prepare('DELETE FROM rom_builds WHERE id = 9000').run()
+    db.$client.prepare('DELETE FROM roms WHERE id = 900').run()
+    db.$client.prepare('DELETE FROM core_artifacts WHERE id = 9000').run()
+    db.$client.prepare('DELETE FROM assets WHERE id BETWEEN 9001 AND 9004').run()
+    rmSync(link, { recursive: true, force: true })
+  }
+
+  assert.deepEqual(responses.map((response) => response.status), [404, 404, 404])
 })
 
 test('hard delete preserves assets referenced through core BIOS provenance', async () => {

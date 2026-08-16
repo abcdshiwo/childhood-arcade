@@ -135,6 +135,33 @@ test('buildEmulatorOptions retains emulator configuration and supplied canvas', 
   assert.equal(options.retroarchConfig.rewind_enable, true)
 })
 
+test('split Blob inputs have stable distinct keys so build switches reboot', () => {
+  assert.equal(typeof nostalgistModule.runtimeRomKey, 'function')
+  const first = [
+    { fileName: 'parent.zip', fileContent: new Blob(['parent']) },
+    { fileName: 'child.zip', fileContent: new Blob(['child-a']) },
+  ]
+  const second = [
+    { fileName: 'parent.zip', fileContent: new Blob(['parent']) },
+    { fileName: 'child.zip', fileContent: new Blob(['child-b']) },
+  ]
+
+  assert.equal(nostalgistModule.runtimeRomKey(first), nostalgistModule.runtimeRomKey(first))
+  assert.notEqual(nostalgistModule.runtimeRomKey(first), nostalgistModule.runtimeRomKey(second))
+})
+
+test('artifact generation tokens reject stale async results', () => {
+  assert.equal(typeof nostalgistModule.createArtifactGenerationGuard, 'function')
+  const guard = nostalgistModule.createArtifactGenerationGuard()
+  const first = guard.begin()
+  const second = guard.begin()
+
+  assert.equal(guard.isCurrent(first), false)
+  assert.equal(guard.isCurrent(second), true)
+  guard.invalidate()
+  assert.equal(guard.isCurrent(second), false)
+})
+
 test('a rejected emulator start is exited and a later boot prepares a fresh instance', async () => {
   const documentRef = fakeDocument()
   const navigatorRef = {}
@@ -297,4 +324,21 @@ test('player waits for user-specific input mapping before mounting the emulator'
 
   assert.match(source, /rom && biosReady && !authLoading/)
   assert.match(source, /watch\(authLoading,[\s\S]*buildPlayer2KeyMap\(mapping\.value\.keyboard\)/)
+})
+
+test('Player and EmulatorPortal wire generation and Blob identity guards into runtime switching', async () => {
+  const [player, portal] = await Promise.all([
+    readFile(new URL('../src/views/Player.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/emulator-portal/EmulatorPortal.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(player, /createArtifactGenerationGuard/)
+  assert.match(player, /isCurrent\(/)
+  assert.match(portal, /runtimeRomKey\(props\.rom\)/)
+})
+
+test('MyRoms can unpublish a public build even after compatibility regresses', async () => {
+  const source = await readFile(new URL('../src/views/MyRoms.vue', import.meta.url), 'utf8')
+  assert.match(source, /:disabled="rom\.compatStatus !== 'ready' && !rom\.isPublic"/)
+  assert.match(source, /if \(rom\.isPublic\) return '设为私密'/)
 })

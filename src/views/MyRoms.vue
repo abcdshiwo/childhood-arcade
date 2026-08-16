@@ -73,7 +73,7 @@
           <div class="muted">{{ fmtTime(rom.createdAt) }}</div>
           <div>
             <label class="switch" :title="publicToggleTitle(rom)">
-              <input type="checkbox" :checked="rom.isPublic" :disabled="rom.compatStatus !== 'ready'" @change="togglePublic(rom, $event.target.checked)" />
+              <input type="checkbox" :checked="rom.isPublic" :disabled="rom.compatStatus !== 'ready' && !rom.isPublic" @change="togglePublic(rom, $event.target.checked)" />
               <span class="track"><span class="thumb"></span></span>
               <span class="switch-label">{{ rom.isPublic ? '公开' : '私密' }}</span>
             </label>
@@ -190,6 +190,7 @@ function buildStatusLabel(rom) {
   return rom.compatStatus === 'ready' ? '已验证' : rom.compatStatus === 'unverified' ? '待验证' : (rom.compatStatus || '无构建')
 }
 function publicToggleTitle(rom) {
+  if (rom.isPublic) return '设为私密'
   if (rom.compatStatus !== 'ready') return '构建通过验证后才能公开'
   return rom.isPublic ? '公开' : '私密'
 }

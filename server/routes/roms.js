@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { createReadStream, statSync, unlinkSync } from 'node:fs'
-import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { extname, resolve } from 'node:path'
 
 import { Hono } from 'hono'
 import { stream } from 'hono/streaming'
@@ -15,6 +15,7 @@ import {
   buildValidationRuns,
   coreArtifacts,
   favorites,
+  importOperations,
   romAssetRefs,
   romBuilds,
   roms,
@@ -56,6 +57,22 @@ const PLATFORM_DEFAULT_CORE = Object.freeze({
   gamegear: 'genesis_plus_gx',
   psx: 'pcsx_rearmed',
 })
+const PLATFORM_ARCHIVE_EXTENSION = Object.freeze({
+  arcade: '.zip',
+  nes: '.nes',
+  famicom: '.nes',
+  fds: '.fds',
+  sfc: '.sfc',
+  snes: '.sfc',
+  gb: '.gb',
+  gbc: '.gbc',
+  gba: '.gba',
+  megadrive: '.md',
+  genesis: '.md',
+  sms: '.sms',
+  gamegear: '.gg',
+  psx: '.bin',
+})
 const ALLOWED_PLATFORMS = new Set(Object.keys(PLATFORM_DEFAULT_CORE))
 
 const liveRom = (extra) =>
@@ -76,25 +93,12 @@ function canonicalSetName(fileName) {
 }
 
 function archiveFileName(rom) {
-  const rawExtension = extname(rom.fileName || '').toLowerCase()
-  const extension = /^\.[a-z0-9]{1,9}$/.test(rawExtension) ? rawExtension : '.zip'
+  const extension = PLATFORM_ARCHIVE_EXTENSION[rom.platform] || '.bin'
   return `${rom.setNameNormalized}${extension}`
 }
 
 function resolveAssetPath(asset) {
-  if (!asset?.filePath || isAbsolute(asset.filePath) || asset.filePath.includes('\\')) {
-    throw new Error('invalid content asset path')
-  }
-  const fullPath = resolve(ASSET_ROOT, ...asset.filePath.split('/'))
-  const pathFromRoot = relative(ASSET_ROOT, fullPath)
-  if (
-    pathFromRoot === '..' ||
-    pathFromRoot.startsWith(`..${sep}`) ||
-    isAbsolute(pathFromRoot)
-  ) {
-    throw new Error('content asset path escapes library root')
-  }
-  return fullPath
+  return contentStore.resolveStoredPath(asset?.filePath)
 }
 
 function biosMembers(core) {
@@ -509,7 +513,7 @@ romRoutes.post('/upload', requireAuth, async (c) => {
   }
   const platform = String(body.platform || '')
   if (!ALLOWED_PLATFORMS.has(platform)) return c.json({ error: '不支持的平台' }, 400)
-  const core = await defaultCoreFor(platform)
+  let core = await defaultCoreFor(platform)
   if (!core) return c.json({ error: '该平台尚未配置可用核心' }, 409)
 
   const titleResult = z.string().min(1).max(128).safeParse(
@@ -519,6 +523,9 @@ romRoutes.post('/upload', requireAuth, async (c) => {
 
   let parentRomId = null
   let versionLabel = null
+  let runtimeParentBuild = null
+  let datParentSetName = null
+  let familyRootSetName = null
   if (body.parentRomId) {
     const pid = Number(body.parentRomId)
     if (Number.isInteger(pid) && pid > 0) {
@@ -529,7 +536,19 @@ romRoutes.post('/upload', requireAuth, async (c) => {
         return c.json({ error: '无权引用该父 ROM' }, 403)
       }
       if (parent.parentRomId) return c.json({ error: '不支持嵌套版本' }, 400)
+      runtimeParentBuild = parent.activeBuildId
+        ? (await db.select().from(romBuilds)
+            .where(eq(romBuilds.id, parent.activeBuildId)).limit(1))[0] ?? null
+        : null
+      if (!runtimeParentBuild || runtimeParentBuild.romId !== parent.id) {
+        return c.json({ error: '父 ROM 尚未配置可运行构建' }, 409)
+      }
+      core = (await db.select().from(coreArtifacts)
+        .where(eq(coreArtifacts.id, runtimeParentBuild.coreArtifactId)).limit(1))[0] ?? null
+      if (!core) return c.json({ error: '父 ROM 的核心构建不存在' }, 409)
       parentRomId = parent.id
+      datParentSetName = parent.setNameNormalized
+      familyRootSetName = parent.familyRootSetName || parent.setNameNormalized
       versionLabel = String(body.versionLabel || '').trim().slice(0, 64) || '变体'
     }
   }
@@ -549,6 +568,7 @@ romRoutes.post('/upload', requireAuth, async (c) => {
     archiveName: file.name,
     archiveSize: bytes.length,
     archiveSha256,
+    runtimeParentBuildFingerprint: runtimeParentBuild?.buildFingerprint ?? null,
   })
 
   let romId
@@ -566,11 +586,20 @@ romRoutes.post('/upload', requireAuth, async (c) => {
           isPublic: false,
           parentRomId,
           setNameNormalized: setName,
-          familyRootSetName: parentRomId ? null : setName,
+          datParentSetName,
+          familyRootSetName: familyRootSetName || setName,
           versionLabel,
         }).returning().get()
       } else if (rom.parentRomId !== parentRomId) {
         throw new Error('同名 ROM 已存在且版本归属不同')
+      }
+
+      if (runtimeParentBuild) {
+        const currentParent = tx.select({ activeBuildId: roms.activeBuildId }).from(roms)
+          .where(eq(roms.id, parentRomId)).limit(1).get()
+        if (currentParent?.activeBuildId !== runtimeParentBuild.id) {
+          throw new Error('父 ROM 的活动构建已更新，请重试')
+        }
       }
 
       let asset = tx.select().from(assets).where(eq(assets.sha256, stored.sha256)).limit(1).get()
@@ -590,8 +619,8 @@ romRoutes.post('/upload', requireAuth, async (c) => {
         coreArtifactFingerprint: core.artifactFingerprint,
         archiveSha256,
         contentManifestSha256,
-        archiveLayout: 'standalone',
-        runtimeParentBuildFingerprint: null,
+        archiveLayout: runtimeParentBuild ? 'split' : 'standalone',
+        runtimeParentBuildFingerprint: runtimeParentBuild?.buildFingerprint ?? null,
         biosManifestSha256: core.biosManifestSha256 ?? null,
       })
       let build = tx.select().from(romBuilds)
@@ -605,7 +634,8 @@ romRoutes.post('/upload', requireAuth, async (c) => {
           contentManifestSha256,
           buildFingerprint,
           staticStatus: 'complete',
-          archiveLayout: 'standalone',
+          archiveLayout: runtimeParentBuild ? 'split' : 'standalone',
+          runtimeParentBuildId: runtimeParentBuild?.id ?? null,
         }).returning().get()
       }
 
@@ -626,7 +656,7 @@ romRoutes.post('/upload', requireAuth, async (c) => {
         db.select({ id: assets.id }).from(assets).where(eq(assets.sha256, stored.sha256)).limit(1).get(),
       ),
     })
-    if (/同名 ROM/.test(error.message)) return c.json({ error: error.message }, 409)
+    if (/同名 ROM|父 ROM/.test(error.message)) return c.json({ error: error.message }, 409)
     throw error
   }
   return c.json(await serializeRomById(romId))
@@ -660,6 +690,9 @@ async function hardDeleteBlocker(rom, builds) {
     return '存在引用该 ROM 的版本'
   }
   if (buildIds.length === 0) return null
+  if (await importHistoryReferencesBuilds(builds)) {
+    return '存在引用该构建的导入或回滚历史'
+  }
   const checks = [
     ['存在引用该构建的房间', rooms, rooms.romBuildId],
     ['存在引用该构建的存档', saveStates, saveStates.romBuildId],
@@ -674,6 +707,76 @@ async function hardDeleteBlocker(rom, builds) {
     }
   }
   return null
+}
+
+const BUILD_ID_FIELDS = new Set([
+  'activeBuildId',
+  'active_build_id',
+  'buildId',
+  'build_id',
+  'romBuildId',
+  'rom_build_id',
+  'runtimeParentBuildId',
+  'runtime_parent_build_id',
+])
+const BUILD_FINGERPRINT_FIELDS = new Set([
+  'buildFingerprint',
+  'build_fingerprint',
+  'runtimeParentBuildFingerprint',
+  'runtime_parent_build_fingerprint',
+])
+
+function operationPayloadReferencesBuild(value, buildIds, buildFingerprints, entityIsBuild = false) {
+  if (Array.isArray(value)) {
+    return value.some((item) =>
+      operationPayloadReferencesBuild(item, buildIds, buildFingerprints, entityIsBuild),
+    )
+  }
+  if (!value || typeof value !== 'object') return false
+  return Object.entries(value).some(([key, child]) => {
+    if (BUILD_ID_FIELDS.has(key) && buildIds.has(Number(child))) return true
+    if (BUILD_FINGERPRINT_FIELDS.has(key) && buildFingerprints.has(String(child))) return true
+    if (entityIsBuild && key === 'id' && buildIds.has(Number(child))) return true
+    if (entityIsBuild && key === 'fingerprint' && buildFingerprints.has(String(child))) return true
+    return operationPayloadReferencesBuild(child, buildIds, buildFingerprints, entityIsBuild)
+  })
+}
+
+async function importHistoryReferencesBuilds(builds) {
+  const buildIds = new Set(builds.map((build) => build.id))
+  const buildFingerprints = new Set(builds.map((build) => build.buildFingerprint))
+  const operations = await db.select({
+    entityType: importOperations.entityType,
+    entityKey: importOperations.entityKey,
+    beforeJson: importOperations.beforeJson,
+    afterJson: importOperations.afterJson,
+  }).from(importOperations)
+
+  for (const operation of operations) {
+    const entityIsBuild = /(^|[_-])build($|[_-])|rombuild/i.test(operation.entityType)
+    const entityKey = String(operation.entityKey)
+    if (entityIsBuild && (
+      buildFingerprints.has(entityKey) ||
+      [...buildIds].some((id) => entityKey === String(id) || entityKey.endsWith(`:${id}`))
+    )) return true
+
+    for (const raw of [operation.beforeJson, operation.afterJson]) {
+      if (raw === null) continue
+      let payload
+      try {
+        payload = JSON.parse(raw)
+      } catch {
+        return true
+      }
+      if (operationPayloadReferencesBuild(
+        payload,
+        buildIds,
+        buildFingerprints,
+        entityIsBuild,
+      )) return true
+    }
+  }
+  return false
 }
 
 async function assetStillReferenced(assetId) {

@@ -7,6 +7,7 @@
 <script setup>
 import { onMounted, watch } from 'vue'
 import { useEmulator } from '../../composables/useEmulator.js'
+import { runtimeRomKey } from '../../composables/nostalgist.js'
 
 const props = defineProps({
   core: { type: String, required: true },
@@ -50,14 +51,7 @@ async function start() {
 
 onMounted(() => start())
 
-// Re-boot on ROM change. Compare by primary fileContent URL (first entry of
-// an array or the single object) plus core name.
-function romKey(r) {
-  if (!r) return null
-  if (Array.isArray(r)) return r.map((x) => x?.fileContent).join('|')
-  return r.fileContent
-}
-watch(() => [romKey(props.rom), props.core, props.coreJsUrl, props.coreWasmUrl], async ([newKey, newCore, newJs, newWasm], [oldKey, oldCore, oldJs, oldWasm]) => {
+watch(() => [runtimeRomKey(props.rom), props.core, props.coreJsUrl, props.coreWasmUrl], async ([newKey, newCore, newJs, newWasm], [oldKey, oldCore, oldJs, oldWasm]) => {
   if (newKey === oldKey && newCore === oldCore && newJs === oldJs && newWasm === oldWasm) return
   await destroy()
   await start()

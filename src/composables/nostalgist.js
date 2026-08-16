@@ -22,6 +22,34 @@ const DEFAULT_RETROARCH_CONFIG = {
   run_ahead_frames: 1,
 }
 
+const runtimeObjectKeys = new WeakMap()
+let nextRuntimeObjectKey = 1
+
+function runtimeContentKey(value) {
+  if ((typeof value === 'object' && value !== null) || typeof value === 'function') {
+    if (!runtimeObjectKeys.has(value)) runtimeObjectKeys.set(value, nextRuntimeObjectKey++)
+    return `object:${runtimeObjectKeys.get(value)}`
+  }
+  return `${typeof value}:${String(value)}`
+}
+
+export function runtimeRomKey(rom) {
+  if (!rom) return 'empty'
+  const entries = Array.isArray(rom) ? rom : [rom]
+  return entries.map((entry) =>
+    `${entry?.fileName || ''}:${runtimeContentKey(entry?.fileContent ?? entry)}`,
+  ).join('|')
+}
+
+export function createArtifactGenerationGuard() {
+  let generation = 0
+  return Object.freeze({
+    begin() { return ++generation },
+    invalidate() { generation += 1 },
+    isCurrent(candidate) { return candidate === generation },
+  })
+}
+
 /**
  * @param {Object} opts
  * @param {string} opts.core

@@ -145,7 +145,10 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, reactive, s
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '../api/client.js'
 import { getPlatformInfo } from '../data/config.js'
-import { resolveBuildArtifacts } from '../composables/nostalgist.js'
+import {
+  createArtifactGenerationGuard,
+  resolveBuildArtifacts,
+} from '../composables/nostalgist.js'
 import { coreDisplayName } from '../constants/cores.js'
 import {
   useInputMapping,
@@ -209,8 +212,10 @@ const versionMenuOpen = ref(false)
 const rom = shallowRef(null)
 const bios = shallowRef([])
 const biosReady = ref(false)
+const artifactGeneration = createArtifactGenerationGuard()
 
 async function resolveRuntimeArtifacts() {
+  const generation = artifactGeneration.begin()
   const build = romMeta.value?.activeBuild
   if (!build) {
     rom.value = null
@@ -220,10 +225,12 @@ async function resolveRuntimeArtifacts() {
   }
   try {
     const runtime = await resolveBuildArtifacts(build)
+    if (!artifactGeneration.isCurrent(generation)) return
     rom.value = runtime.rom.length === 1 ? runtime.rom[0] : runtime.rom
     bios.value = runtime.bios
     biosReady.value = true
   } catch (err) {
+    if (!artifactGeneration.isCurrent(generation)) return
     fatalError.value = `下载 ROM 失败：${err.message}`
     biosReady.value = false
   }
@@ -234,7 +241,9 @@ async function resolveRuntimeArtifacts() {
 // `welcome` frame confirms we're the host (signalMe arrives). This also keeps
 // anonymous spectators from hitting the auth-gated build file endpoint.
 watch([romMeta, signalMe], () => {
+  artifactGeneration.invalidate()
   rom.value = null
+  bios.value = []
   biosReady.value = false
   if (isRoomMode) {
     if (!signalMe.value) return
@@ -648,6 +657,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  artifactGeneration.invalidate()
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('keydown', guestKeyHandler, true)
   document.removeEventListener('keyup', guestKeyHandler, true)

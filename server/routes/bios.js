@@ -1,31 +1,21 @@
 import { readFileSync } from 'node:fs'
-import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { extname, resolve } from 'node:path'
 
 import { Hono } from 'hono'
 import { eq } from 'drizzle-orm'
 
 import { db } from '../db/index.js'
 import { assets, coreArtifacts } from '../db/schema.js'
+import { createContentStore } from '../services/content-store.js'
 
 const ASSET_ROOT = resolve(process.env.LIBRARY_ASSET_ROOT || 'data/library-assets')
 const SHA256_PATTERN = /^[0-9a-f]{64}$/
+const contentStore = createContentStore({ root: ASSET_ROOT })
 
 export const biosRoutes = new Hono()
 
 function assetPath(asset) {
-  if (!asset?.filePath || isAbsolute(asset.filePath) || asset.filePath.includes('\\')) {
-    throw new Error('invalid asset path')
-  }
-  const fullPath = resolve(ASSET_ROOT, ...asset.filePath.split('/'))
-  const pathFromRoot = relative(ASSET_ROOT, fullPath)
-  if (
-    pathFromRoot === '..' ||
-    pathFromRoot.startsWith(`..${sep}`) ||
-    isAbsolute(pathFromRoot)
-  ) {
-    throw new Error('asset path escapes library root')
-  }
-  return fullPath
+  return contentStore.resolveStoredPath(asset?.filePath)
 }
 
 function biosMember(core, fileName, sha) {
