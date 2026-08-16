@@ -21,7 +21,7 @@
       class="bar-btn bar-btn-crt"
       :class="{ active: crtEnabled }"
       data-testid="crt-toggle"
-      :aria-label="crtEnabled ? '关闭 CRT 滤镜' : '开启 CRT 滤镜'"
+      aria-label="CRT 滤镜"
       :aria-pressed="crtEnabled"
       :title="crtEnabled ? '关闭 CRT 滤镜' : '开启 CRT 滤镜'"
       @click="$emit('toggle-crt')"
@@ -189,7 +189,7 @@ const canFullscreen = hasFs && !isIOS
 .bar-btn-crt.active {
   background: color-mix(in srgb, var(--accent) 24%, transparent);
   border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  color: var(--accent);
+  color: #fff;
 }
 .bar-btn-crt.active:hover {
   background: color-mix(in srgb, var(--accent) 34%, transparent);
@@ -208,5 +208,17 @@ const canFullscreen = hasFs && !isIOS
   .bar-btn { min-height: 30px; min-width: 30px; padding: 3px 8px; }
   .bar-title { font-size: 12px; }
   .bar-badge, .bar-core { display: none; }
+}
+@media (max-width: 380px) {
+  .player-bar {
+    gap: 4px;
+    padding: 6px 4px;
+    padding-right: calc(4px + env(safe-area-inset-right));
+    padding-left: calc(4px + env(safe-area-inset-left));
+  }
+  .bar-center { gap: 4px; }
+  .bar-badge { display: none; }
+  .bar-title { font-size: 12px; }
+  .bar-btn { min-width: 30px; min-height: 34px; padding: 4px; }
 }
 </style>

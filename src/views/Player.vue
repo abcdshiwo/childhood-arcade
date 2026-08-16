@@ -71,6 +71,7 @@
           <video
             ref="remoteVideoRef"
             class="remote-video"
+            :class="{ 'stream-visible': remoteStreamActive }"
             autoplay
             playsinline
             muted
@@ -193,6 +194,7 @@ const toastText = ref('')
 const fatalError = ref(null)
 const romMeta = ref(null)
 const remoteStreamActive = ref(false)
+const remoteStreamPlaying = ref(false)
 const isMuted = ref(true)
 const connectionStatus = ref('建立连接…')
 const booted = ref(false)
@@ -226,6 +228,10 @@ watch(isArcade, (arcade) => {
     crtEnabled.value = false
   }
 }, { immediate: true })
+
+watch(romMeta, (meta) => {
+  remoteStreamActive.value = !!meta && remoteStreamPlaying.value
+})
 
 function toggleCrt() {
   if (!isArcade.value) return
@@ -515,7 +521,8 @@ function onKeyDown(e) {
 // (not merely when tracks arrive). Using this instead of onRemoteStream avoids
 // hiding the waiting overlay before any pixel has been drawn.
 function onVideoPlaying() {
-  remoteStreamActive.value = true
+  remoteStreamPlaying.value = true
+  remoteStreamActive.value = !!romMeta.value
 }
 
 // Browser autoplay policy blocks playback with audio until a user gesture.
@@ -604,6 +611,7 @@ function setupRoom() {
     delete signalPeers[msg.peerId]
     rtc?.closePeer(msg.peerId)
     // Clear the guest's video since the stream is dead either way.
+    remoteStreamPlaying.value = false
     remoteStreamActive.value = false
     if (msg.wasHost && !signalMe.value?.isHost) {
       showToast(msg.reconnecting ? '主机重连中…' : '房主已离开')
@@ -824,7 +832,9 @@ onBeforeUnmount(() => {
   max-width: 100%; max-height: 100%;
   background: #000;
   object-fit: contain;
+  opacity: 0;
 }
+.remote-video.stream-visible { opacity: 1; }
 .guest-waiting {
   position: absolute; inset: 0;
   display: flex; flex-direction: column;

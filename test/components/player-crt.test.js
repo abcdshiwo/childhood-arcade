@@ -162,6 +162,12 @@ function configureGuestRoom() {
   harness.api.romBuild.mockRejectedValue(new Error('guest does not download ROM data'))
 }
 
+function deferred() {
+  let resolve
+  const promise = new Promise((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 function createSignal() {
   const handlers = new Map()
   const connected = ref(false)
@@ -302,5 +308,41 @@ describe('Player arcade CRT behavior', () => {
     expect(wrapper.get('.guest-view').classes()).toContain('crt-enabled')
     expect(localStorage.getItem(CRT_STORAGE_KEY)).toBe('1')
     expect(harness.rtc.sendData).not.toHaveBeenCalled()
+  })
+
+  test('keeps a fast guest stream covered until delayed arcade metadata restores the saved filter', async () => {
+    localStorage.setItem(CRT_STORAGE_KEY, '1')
+    const joined = deferred()
+    configureGuestRoom()
+    harness.api.roomJoin.mockReturnValue(joined.promise)
+    const wrapper = mountPlayer()
+    await settlePlayer()
+
+    const video = wrapper.get('.remote-video')
+    await video.trigger('playing')
+    await nextTick()
+
+    expect(wrapper.find('.guest-waiting').exists()).toBe(true)
+    expect(video.classes()).not.toContain('stream-visible')
+
+    joined.resolve({
+      roomCode: 'CRT1',
+      romId: 7,
+      romTitle: '拳皇 97',
+      romPlatform: 'arcade',
+      romSetName: 'kof97',
+      romVersionLabel: null,
+      romVariantKind: null,
+      romBuildId: 41,
+      coreName: 'fbneo',
+      coreVersion: '1.0.0',
+      coreArtifactFingerprint: 'fbneo-fingerprint',
+      allowPlay: true,
+    })
+    await settlePlayer()
+
+    expect(wrapper.get('.guest-view').classes()).toContain('crt-enabled')
+    expect(video.classes()).toContain('stream-visible')
+    expect(wrapper.find('.guest-waiting').exists()).toBe(false)
   })
 })
