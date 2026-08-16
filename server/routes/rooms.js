@@ -4,7 +4,15 @@ import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { customAlphabet } from 'nanoid'
 import { db } from '../db/index.js'
-import { rooms, roms, users, STATUS } from '../db/schema.js'
+import {
+  buildValidationRuns,
+  coreArtifacts,
+  romBuilds,
+  rooms,
+  roms,
+  users,
+  STATUS,
+} from '../db/schema.js'
 import { requireAuth, currentUser } from '../middleware/auth.js'
 import { getSetting } from './settings.js'
 import { isHostOnline } from '../room-hub.js'
@@ -36,9 +44,59 @@ function serializeRoom(row, extras = {}) {
     hasPassword: !!row.passwordHash,
     hostUserId: row.hostUserId,
     romId: row.romId,
+    romBuildId: row.romBuildId,
     createdAt: row.createdAt,
     ...extras,
   }
+}
+
+function buildExtras({ rom, build, core }) {
+  return {
+    romTitle: rom.title,
+    romPlatform: rom.platform,
+    romSetName: rom.setNameNormalized,
+    romVersionLabel: rom.versionLabel ?? null,
+    romVariantKind: rom.variantKind ?? null,
+    buildFingerprint: build.buildFingerprint,
+    contentManifestSha256: build.contentManifestSha256,
+    archiveLayout: build.archiveLayout,
+    coreName: core.coreName,
+    coreVersion: core.displayVersion,
+    coreArtifactFingerprint: core.artifactFingerprint,
+  }
+}
+
+function readyActiveBuild(tx, rom) {
+  if (!Number.isInteger(rom.activeBuildId)) return null
+  const build = tx.select().from(romBuilds).where(and(
+    eq(romBuilds.id, rom.activeBuildId),
+    eq(romBuilds.romId, rom.id),
+    eq(romBuilds.staticStatus, 'complete'),
+  )).limit(1).get()
+  if (!build) return null
+  const accepted = tx.select({ result: buildValidationRuns.result })
+    .from(buildValidationRuns)
+    .where(and(
+      eq(buildValidationRuns.romBuildId, build.id),
+      eq(buildValidationRuns.acceptance, 'accepted'),
+      eq(buildValidationRuns.result, 'passed'),
+    ))
+    .limit(1).get()
+  if (!accepted) return null
+  const core = tx.select().from(coreArtifacts)
+    .where(eq(coreArtifacts.id, build.coreArtifactId)).limit(1).get()
+  return core ? { build, core } : null
+}
+
+async function detailsForRoom(row) {
+  const rom = (await db.select().from(roms).where(eq(roms.id, row.romId)).limit(1))[0]
+  const build = (await db.select().from(romBuilds)
+    .where(and(eq(romBuilds.id, row.romBuildId), eq(romBuilds.romId, row.romId)))
+    .limit(1))[0]
+  const core = build
+    ? (await db.select().from(coreArtifacts).where(eq(coreArtifacts.id, build.coreArtifactId)).limit(1))[0]
+    : null
+  return rom && build && core ? buildExtras({ rom, build, core }) : {}
 }
 
 // List open public rooms with basic info
@@ -46,19 +104,23 @@ roomRoutes.get('/', async (c) => {
   const rows = await db.select({
     r: rooms,
     hostUsername: users.username,
-    romTitle: roms.title,
-    romPlatform: roms.platform,
+    rom: roms,
+    build: romBuilds,
+    core: coreArtifacts,
   })
     .from(rooms)
     .innerJoin(users, eq(users.id, rooms.hostUserId))
     .innerJoin(roms, eq(roms.id, rooms.romId))
+    .innerJoin(romBuilds, and(eq(romBuilds.id, rooms.romBuildId), eq(romBuilds.romId, rooms.romId)))
+    .innerJoin(coreArtifacts, eq(coreArtifacts.id, romBuilds.coreArtifactId))
     .where(liveRoom(eq(rooms.isPublic, true)))
     .orderBy(desc(rooms.createdAt))
 
   return c.json({
-    rooms: rows.map(({ r, hostUsername, romTitle, romPlatform }) =>
+    rooms: rows.map(({ r, hostUsername, rom, build, core }) =>
       serializeRoom(r, {
-        hostUsername, romTitle, romPlatform,
+        hostUsername,
+        ...buildExtras({ rom, build, core }),
         hostOnline: isHostOnline(r.code),
       }),
     ),
@@ -70,17 +132,21 @@ roomRoutes.get('/mine', requireAuth, async (c) => {
   const me = c.get('user')
   const rows = await db.select({
     r: rooms,
-    romTitle: roms.title,
-    romPlatform: roms.platform,
+    rom: roms,
+    build: romBuilds,
+    core: coreArtifacts,
   })
     .from(rooms)
     .innerJoin(roms, eq(roms.id, rooms.romId))
+    .innerJoin(romBuilds, and(eq(romBuilds.id, rooms.romBuildId), eq(romBuilds.romId, rooms.romId)))
+    .innerJoin(coreArtifacts, eq(coreArtifacts.id, romBuilds.coreArtifactId))
     .where(liveRoom(eq(rooms.hostUserId, me.id)))
     .orderBy(desc(rooms.createdAt))
   return c.json({
-    rooms: rows.map(({ r, romTitle, romPlatform }) =>
+    rooms: rows.map(({ r, rom, build, core }) =>
       serializeRoom(r, {
-        hostUsername: me.username, romTitle, romPlatform,
+        hostUsername: me.username,
+        ...buildExtras({ rom, build, core }),
         hostOnline: isHostOnline(r.code),
       }),
     ),
@@ -99,7 +165,8 @@ roomRoutes.post('/', requireAuth, async (c) => {
   if (!parsed.success) return c.json({ error: '参数不合法' }, 400)
   const { name, romId, isPublic, allowPlay, password } = parsed.data
 
-  const rom = (await db.select().from(roms).where(eq(roms.id, romId)).limit(1))[0]
+  const rom = (await db.select().from(roms)
+    .where(and(eq(roms.id, romId), eq(roms.status, STATUS.normal))).limit(1))[0]
   if (!rom) return c.json({ error: 'ROM 不存在' }, 404)
   if (rom.userId !== me.id && !rom.isPublic && me.role !== 'admin') {
     return c.json({ error: '无权使用该 ROM' }, 403)
@@ -108,26 +175,52 @@ roomRoutes.post('/', requireAuth, async (c) => {
   const passwordHash = password ? await bcrypt.hash(password, 10) : null
 
   // try a few times in case of a code collision
-  let code, inserted
+  let code, inserted, pinned
   for (let i = 0; i < 5; i++) {
     code = makeCode()
     try {
-      [inserted] = await db.insert(rooms).values({
-        code,
-        hostUserId: me.id,
-        romId,
-        name: name.trim(),
-        isPublic,
-        allowPlay,
-        passwordHash,
-      }).returning()
+      const result = db.transaction((tx) => {
+        const currentRom = tx.select().from(roms).where(and(
+          eq(roms.id, romId),
+          eq(roms.status, STATUS.normal),
+        )).limit(1).get()
+        const ready = currentRom ? readyActiveBuild(tx, currentRom) : null
+        if (!currentRom || !ready) {
+          const error = new Error('ROM 当前构建尚未通过验证')
+          error.code = 'BUILD_NOT_READY'
+          throw error
+        }
+        const room = tx.insert(rooms).values({
+          code,
+          hostUserId: me.id,
+          romId,
+          romBuildId: ready.build.id,
+          name: name.trim(),
+          isPublic,
+          allowPlay,
+          passwordHash,
+        }).returning().get()
+        return { room, ready, currentRom }
+      })
+      inserted = result.room
+      pinned = result
       break
     } catch (err) {
+      if (err.code === 'BUILD_NOT_READY') {
+        return c.json({ error: err.message }, 409)
+      }
       if (i === 4) throw err
     }
   }
 
-  return c.json(serializeRoom(inserted, { hostUsername: me.username }))
+  return c.json(serializeRoom(inserted, {
+    hostUsername: me.username,
+    ...buildExtras({
+      rom: pinned.currentRom,
+      build: pinned.ready.build,
+      core: pinned.ready.core,
+    }),
+  }))
 })
 
 // Fetch room info by code (public endpoint; validates password if provided)
@@ -139,12 +232,15 @@ roomRoutes.post('/:code/join', async (c) => {
   const row = (await db.select({
     r: rooms,
     hostUsername: users.username,
-    romTitle: roms.title,
-    romPlatform: roms.platform,
+    rom: roms,
+    build: romBuilds,
+    core: coreArtifacts,
   })
     .from(rooms)
     .innerJoin(users, eq(users.id, rooms.hostUserId))
     .innerJoin(roms, eq(roms.id, rooms.romId))
+    .innerJoin(romBuilds, and(eq(romBuilds.id, rooms.romBuildId), eq(romBuilds.romId, rooms.romId)))
+    .innerJoin(coreArtifacts, eq(coreArtifacts.id, romBuilds.coreArtifactId))
     .where(eq(rooms.code, code))
     .limit(1))[0]
 
@@ -167,8 +263,7 @@ roomRoutes.post('/:code/join', async (c) => {
 
   return c.json(serializeRoom(row.r, {
     hostUsername: row.hostUsername,
-    romTitle: row.romTitle,
-    romPlatform: row.romPlatform,
+    ...buildExtras({ rom: row.rom, build: row.build, core: row.core }),
     hostOnline: isHostOnline(code),
   }))
 })
@@ -201,25 +296,24 @@ roomRoutes.patch('/:code', requireAuth, async (c) => {
   if (typeof parsed.data.isPublic === 'boolean') patch.isPublic = parsed.data.isPublic
   if (typeof parsed.data.allowPlay === 'boolean') patch.allowPlay = parsed.data.allowPlay
   if (typeof parsed.data.romId === 'number' && parsed.data.romId !== row.romId) {
-    const rom = (await db.select().from(roms).where(eq(roms.id, parsed.data.romId)).limit(1))[0]
-    if (!rom) return c.json({ error: 'ROM 不存在' }, 404)
-    if (rom.userId !== me.id && !rom.isPublic && me.role !== 'admin') {
-      return c.json({ error: '无权使用该 ROM' }, 403)
-    }
-    patch.romId = parsed.data.romId
+    return c.json({ error: '房间游戏和版本已锁定，请关闭后重新建房' }, 409)
   }
   if ('password' in parsed.data) {
     const pw = parsed.data.password
     patch.passwordHash = (pw === null || pw === '') ? null : await bcrypt.hash(pw, 10)
   }
   if (Object.keys(patch).length === 0) {
-    const rom = (await db.select().from(roms).where(eq(roms.id, row.romId)).limit(1))[0]
-    return c.json(serializeRoom(row, { romTitle: rom?.title, romPlatform: rom?.platform, hostUsername: me.username }))
+    return c.json(serializeRoom(row, {
+      ...(await detailsForRoom(row)),
+      hostUsername: me.username,
+    }))
   }
 
   const [updated] = await db.update(rooms).set(patch).where(eq(rooms.code, code)).returning()
-  const rom = (await db.select().from(roms).where(eq(roms.id, updated.romId)).limit(1))[0]
-  return c.json(serializeRoom(updated, { romTitle: rom?.title, romPlatform: rom?.platform, hostUsername: me.username }))
+  return c.json(serializeRoom(updated, {
+    ...(await detailsForRoom(updated)),
+    hostUsername: me.username,
+  }))
 })
 
 // Close a room (host or admin)

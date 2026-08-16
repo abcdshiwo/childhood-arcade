@@ -5,7 +5,7 @@ import { writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { stream } from 'hono/streaming'
 import { db } from '../db/index.js'
-import { saveStates, roms, STATUS } from '../db/schema.js'
+import { coreArtifacts, romBuilds, saveStates, roms, STATUS } from '../db/schema.js'
 import { requireAuth } from '../middleware/auth.js'
 
 const liveSave = (extra) =>
@@ -20,10 +20,57 @@ function serialize(row) {
   return {
     id: row.id,
     romId: row.romId,
+    romBuildId: row.romBuildId,
+    buildFingerprint: row.buildFingerprint,
+    coreArtifactFingerprint: row.coreArtifactFingerprint,
+    contentManifestSha256: row.contentManifestSha256,
     slot: row.slot,
     size: row.fileSize,
     updatedAt: row.updatedAt,
   }
+}
+
+function positiveInteger(value) {
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+async function resolveBuildIdentity({ romId, buildId, user }) {
+  const rom = (await db.select().from(roms).where(and(
+    eq(roms.id, romId),
+    eq(roms.status, STATUS.normal),
+  )).limit(1))[0]
+  if (!rom) return { error: 'ROM 不存在', status: 404 }
+  if (rom.userId !== user.id && !rom.isPublic && user.role !== 'admin') {
+    return { error: '无权为该 ROM 存档', status: 403 }
+  }
+  const build = (await db.select().from(romBuilds).where(eq(romBuilds.id, buildId)).limit(1))[0]
+  if (!build || build.romId !== romId) {
+    return { error: '构建与 ROM 不匹配', status: 409 }
+  }
+  const core = (await db.select().from(coreArtifacts)
+    .where(eq(coreArtifacts.id, build.coreArtifactId)).limit(1))[0]
+  if (!core) return { error: '构建核心不存在', status: 409 }
+  return {
+    rom,
+    build,
+    core,
+    identity: {
+      romId,
+      romBuildId: build.id,
+      buildFingerprint: build.buildFingerprint,
+      coreArtifactFingerprint: core.artifactFingerprint,
+      contentManifestSha256: build.contentManifestSha256,
+    },
+  }
+}
+
+function saveIdentityWhere(userId, buildId, slot) {
+  return liveSave(and(
+    eq(saveStates.userId, userId),
+    eq(saveStates.romBuildId, buildId),
+    eq(saveStates.slot, slot),
+  ))
 }
 
 // List all saves for the current user
@@ -38,9 +85,13 @@ saveRoutes.get('/mine', requireAuth, async (c) => {
 saveRoutes.get('/:romId', requireAuth, async (c) => {
   const me = c.get('user')
   const romId = Number(c.req.param('romId'))
+  const buildId = positiveInteger(c.req.query('buildId'))
   const slot = Number(c.req.query('slot') || 0)
+  if (!buildId) return c.json({ error: '缺少有效的 buildId' }, 400)
+  const resolved = await resolveBuildIdentity({ romId, buildId, user: me })
+  if (resolved.error) return c.json({ error: resolved.error }, resolved.status)
   const row = (await db.select().from(saveStates)
-    .where(liveSave(and(eq(saveStates.userId, me.id), eq(saveStates.romId, romId), eq(saveStates.slot, slot))))
+    .where(saveIdentityWhere(me.id, buildId, slot))
     .limit(1))[0]
   if (!row) return c.json({ error: '无存档' }, 404)
 
@@ -67,28 +118,26 @@ saveRoutes.get('/:romId', requireAuth, async (c) => {
 saveRoutes.post('/:romId', requireAuth, async (c) => {
   const me = c.get('user')
   const romId = Number(c.req.param('romId'))
+  const buildId = positiveInteger(c.req.query('buildId'))
   const slot = Number(c.req.query('slot') || 0)
+  if (!buildId) return c.json({ error: '缺少有效的 buildId' }, 400)
 
-  // Validate ROM exists + accessible
-  const rom = (await db.select().from(roms).where(eq(roms.id, romId)).limit(1))[0]
-  if (!rom) return c.json({ error: 'ROM 不存在' }, 404)
-  if (rom.userId !== me.id && !rom.isPublic && me.role !== 'admin') {
-    return c.json({ error: '无权为该 ROM 存档' }, 403)
-  }
+  const resolved = await resolveBuildIdentity({ romId, buildId, user: me })
+  if (resolved.error) return c.json({ error: resolved.error }, resolved.status)
 
   const buf = Buffer.from(await c.req.arrayBuffer())
   if (!buf.length) return c.json({ error: '空存档' }, 400)
   if (buf.length > MAX_STATE_BYTES) return c.json({ error: `存档超过 ${Math.round(MAX_STATE_BYTES/1024/1024)}MB` }, 413)
 
-  const userDir = join(SAVES_DIR, String(me.id))
+  const userDir = join(SAVES_DIR, String(me.id), resolved.build.buildFingerprint)
   mkdirSync(userDir, { recursive: true })
-  const fileName = `${romId}.s${slot}.state`
+  const fileName = `slot-${slot}.state`
   const filePath = join(userDir, fileName)
   await writeFile(filePath, buf)
 
   // Upsert DB row
   const existing = (await db.select().from(saveStates)
-    .where(liveSave(and(eq(saveStates.userId, me.id), eq(saveStates.romId, romId), eq(saveStates.slot, slot))))
+    .where(saveIdentityWhere(me.id, buildId, slot))
     .limit(1))[0]
 
   let row
@@ -99,7 +148,11 @@ saveRoutes.post('/:romId', requireAuth, async (c) => {
       .returning()
   } else {
     [row] = await db.insert(saveStates).values({
-      userId: me.id, romId, slot, filePath, fileSize: buf.length,
+      userId: me.id,
+      ...resolved.identity,
+      slot,
+      filePath,
+      fileSize: buf.length,
     }).returning()
   }
   return c.json(serialize(row))
@@ -109,9 +162,13 @@ saveRoutes.post('/:romId', requireAuth, async (c) => {
 saveRoutes.delete('/:romId', requireAuth, async (c) => {
   const me = c.get('user')
   const romId = Number(c.req.param('romId'))
+  const buildId = positiveInteger(c.req.query('buildId'))
   const slot = Number(c.req.query('slot') || 0)
+  if (!buildId) return c.json({ error: '缺少有效的 buildId' }, 400)
+  const resolved = await resolveBuildIdentity({ romId, buildId, user: me })
+  if (resolved.error) return c.json({ error: resolved.error }, resolved.status)
   const row = (await db.select().from(saveStates)
-    .where(liveSave(and(eq(saveStates.userId, me.id), eq(saveStates.romId, romId), eq(saveStates.slot, slot))))
+    .where(saveIdentityWhere(me.id, buildId, slot))
     .limit(1))[0]
   if (!row) return c.json({ ok: true })
   try { unlinkSync(row.filePath) } catch {}

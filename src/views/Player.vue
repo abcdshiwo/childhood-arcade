@@ -14,7 +14,7 @@
     >
       <template #extras>
         <!-- Version switcher: only when this game has multi-version siblings -->
-        <div v-if="siblings.length > 1" class="ver-switch" @click.stop>
+        <div v-if="!isRoomMode && siblings.length > 1" class="ver-switch" @click.stop>
           <button class="ver-btn" @click="versionMenuOpen = !versionMenuOpen">
             <span class="ver-cur">{{ currentVersionLabel }}</span>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -295,6 +295,35 @@ const retroarchConfig = computed(() => {
 async function loadMeta() {
   const id = Number(props.id)
   try {
+    if (isRoomMode) {
+      const pw = sessionStorage.getItem(`room:${roomCode}:pw`) || ''
+      const room = await api.roomJoin(roomCode, pw)
+      roomInfo.value = room
+      let locked = null
+      try {
+        locked = await api.romBuild(room.romBuildId)
+      } catch {
+        // Spectators stream the host canvas and do not need protected ROM bytes.
+      }
+      const found = {
+        id: room.romId,
+        title: room.romTitle,
+        platform: room.romPlatform,
+        setName: room.romSetName,
+        setNameNormalized: room.romSetName,
+        versionLabel: room.romVersionLabel,
+        variantKind: room.romVariantKind,
+        buildId: room.romBuildId,
+        coreName: room.coreName,
+        coreVersion: room.coreVersion,
+        coreArtifactFingerprint: room.coreArtifactFingerprint,
+        activeBuild: locked?.build ?? null,
+      }
+      romMeta.value = found
+      siblings.value = [found]
+      return
+    }
+
     const [{ roms: mine }, { roms: pub }] = await Promise.all([
       api.romsMine().catch(() => ({ roms: [] })),
       api.romsPublic().catch(() => ({ roms: [] })),
@@ -308,21 +337,12 @@ async function loadMeta() {
         found = versions.find((r) => r.id === id)
       } catch {}
     }
-    if (isRoomMode) {
-      const pw = sessionStorage.getItem(`room:${roomCode}:pw`) || ''
-      try {
-        const room = await api.roomJoin(roomCode, pw)
-        roomInfo.value = room
-        if (!found && room.romId === id) {
-          found = { id: room.romId, title: room.romTitle, platform: room.romPlatform, fileName: '', isPublic: false }
-        }
-      } catch {}
-    }
     if (!found) {
       fatalError.value = 'ROM 未找到或无权访问 (id=' + id + ')'
       return
     }
     romMeta.value = found
+    offerLegacySaveImport()
     // Load sibling versions for the top-bar switcher. Runtime dependencies are
     // already fixed by the active build returned above.
     try {
@@ -345,15 +365,40 @@ const currentVersionLabel = computed(() => {
 
 function switchVersion(v) {
   versionMenuOpen.value = false
+  if (isRoomMode) return
   if (!v || v.id === romMeta.value?.id) return
-  const suffix = roomCode ? `?room=${roomCode}` : ''
-  router.push(`/play/${v.id}${suffix}`)
+  router.push(`/play/${v.id}`)
 }
 
 // -- Save states (cloud if authed + rom in DB, else localStorage) --
-const localKey = computed(() =>
-  romMeta.value ? `state:${platformInfo.value.core}:${romMeta.value.id}` : null,
-)
+const localKey = computed(() => {
+  const build = romMeta.value?.activeBuild
+  if (!build?.id || !build?.core?.artifactFingerprint || !build?.contentManifestSha256) return null
+  return `state:${build.id}:${build.core.artifactFingerprint}:${build.contentManifestSha256}`
+})
+
+function legacySaveKey() {
+  return romMeta.value ? `state:${platformInfo.value.core}:${romMeta.value.id}` : null
+}
+
+function legacySaveDecisionKey(key) {
+  return key ? `state:legacy-reviewed:${key}` : null
+}
+
+function offerLegacySaveImport() {
+  if (isRoomMode || typeof window === 'undefined') return
+  const oldKey = legacySaveKey()
+  const decisionKey = legacySaveDecisionKey(oldKey)
+  const destinationKey = localKey.value
+  if (!oldKey || !decisionKey || !destinationKey) return
+  const legacyState = localStorage.getItem(oldKey)
+  if (!legacyState || localStorage.getItem(decisionKey)) return
+  const shouldImport = window.confirm('发现旧版未归属存档。是否手动导入到当前精确游戏版本？请确认它确实属于这个版本。')
+  localStorage.setItem(decisionKey, shouldImport ? 'imported' : 'dismissed')
+  if (!shouldImport) return
+  localStorage.setItem(destinationKey, legacyState)
+  showToast('旧存档已导入，未自动读档')
+}
 
 async function onSaveState() {
   if (isGuestMode.value) return showToast('客人模式不支持存档')
@@ -361,9 +406,10 @@ async function onSaveState() {
     const data = await portalRef.value?.saveState()
     if (!data) return showToast('存档失败')
     const blob = data instanceof Blob ? data : new Blob([data])
-    if (isAuthed.value && romMeta.value) {
+    const buildId = romMeta.value?.activeBuild?.id
+    if (isAuthed.value && romMeta.value && buildId) {
       try {
-        await api.saveUpload(romMeta.value.id, blob)
+        await api.saveUpload(romMeta.value.id, buildId, blob)
         showToast('已存档（云端）')
         return
       } catch (err) {
@@ -387,9 +433,10 @@ async function onLoadState() {
   if (isGuestMode.value) return showToast('客人模式不支持读档')
   if (!romMeta.value) return
   try {
-    if (isAuthed.value) {
+    const buildId = romMeta.value?.activeBuild?.id
+    if (isAuthed.value && buildId) {
       try {
-        const blob = await api.saveLoad(romMeta.value.id)
+        const blob = await api.saveLoad(romMeta.value.id, buildId)
         if (blob) {
           await portalRef.value?.loadState(blob)
           return showToast('已读档（云端）')

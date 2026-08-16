@@ -56,8 +56,11 @@ export const api = {
 
   // saves
   savesMine: () => request('/api/saves/mine'),
-  saveLoad: async (romId, slot = 0) => {
-    const res = await fetch(`/api/saves/${romId}?slot=${slot}`, { credentials: 'include' })
+  saveLoad: async (romId, buildId, slot = 0) => {
+    const res = await fetch(
+      `/api/saves/${romId}?buildId=${encodeURIComponent(buildId)}&slot=${encodeURIComponent(slot)}`,
+      { credentials: 'include' },
+    )
     if (res.status === 404) return null
     if (!res.ok) {
       const d = await res.json().catch(() => null)
@@ -65,8 +68,8 @@ export const api = {
     }
     return await res.blob()
   },
-  saveUpload: async (romId, blob, slot = 0) => {
-    const res = await fetch(`/api/saves/${romId}?slot=${slot}`, {
+  saveUpload: async (romId, buildId, blob, slot = 0) => {
+    const res = await fetch(`/api/saves/${romId}?buildId=${encodeURIComponent(buildId)}&slot=${encodeURIComponent(slot)}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/octet-stream' },

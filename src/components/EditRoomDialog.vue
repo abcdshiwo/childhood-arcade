@@ -19,27 +19,13 @@
           </div>
 
           <div>
-            <label class="label">游戏 ROM</label>
-            <div class="rom-search">
-              <input v-model="romQuery" class="input" placeholder="搜索 ROM…" />
-              <div v-if="filteredRoms.length" class="rom-list">
-                <button
-                  v-for="r in filteredRoms.slice(0, 8)"
-                  :key="r.id"
-                  type="button"
-                  class="rom-row"
-                  :class="{ selected: selectedRomId === r.id }"
-                  @click="selectedRomId = r.id"
-                >
-                  <span class="rt">{{ r.title }}</span>
-                  <span class="rp">{{ r.platform }}</span>
-                </button>
-              </div>
-              <div v-else class="rom-empty">没有匹配结果</div>
-              <div v-if="romChanged" class="rom-warn">
-                切换游戏后，当前连接的访客会被断开，需要重新加入房间。
-              </div>
+            <label class="label">已锁定游戏版本</label>
+            <div class="locked-rom">
+              <strong>{{ room.romTitle }}</strong>
+              <span>{{ room.romSetName || `ROM #${room.romId}` }}</span>
+              <span>{{ room.romVersionLabel || '原版' }} · {{ room.coreName }} {{ room.coreVersion }}</span>
             </div>
+            <p class="locked-note">房间运行期间不能切换版本；需要更换时请关闭并重新建房。</p>
           </div>
 
           <label class="opt">
@@ -82,7 +68,7 @@
 
           <footer class="df">
             <button type="button" class="btn" :disabled="busy" @click="$emit('close')">取消</button>
-            <button type="submit" class="btn btn-primary" :disabled="busy || !name || !selectedRomId">
+            <button type="submit" class="btn btn-primary" :disabled="busy || !name">
               {{ busy ? '保存中…' : '保存' }}
             </button>
           </footer>
@@ -93,7 +79,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref } from 'vue'
 import { api } from '../api/client.js'
 
 const props = defineProps({
@@ -109,42 +95,6 @@ const clearPw = ref(false)
 const error = ref('')
 const busy = ref(false)
 
-const roms = ref([])
-const romQuery = ref('')
-const selectedRomId = ref(props.room.romId)
-
-onMounted(async () => {
-  try {
-    const [mine, pub] = await Promise.all([
-      api.romsMine().catch(() => ({ roms: [] })),
-      api.romsPublic().catch(() => ({ roms: [] })),
-    ])
-    const merged = [...mine.roms, ...pub.roms]
-    const seen = new Set()
-    roms.value = merged.filter((r) => {
-      if (seen.has(r.id)) return false
-      seen.add(r.id)
-      return true
-    })
-    if (!roms.value.some((r) => r.id === props.room.romId) && props.room.romTitle) {
-      roms.value.unshift({
-        id: props.room.romId,
-        title: props.room.romTitle,
-        platform: props.room.romPlatform || '',
-      })
-    }
-  } catch {}
-})
-
-const filteredRoms = computed(() => {
-  const q = romQuery.value.trim().toLowerCase()
-  if (!q) return roms.value
-  return roms.value.filter((r) =>
-    r.title.toLowerCase().includes(q) || r.platform.toLowerCase().includes(q),
-  )
-})
-const romChanged = computed(() => selectedRomId.value !== props.room.romId)
-
 async function submit() {
   error.value = ''
   busy.value = true
@@ -152,7 +102,6 @@ async function submit() {
   if (name.value !== props.room.name) patch.name = name.value
   if (isPublic.value !== props.room.isPublic) patch.isPublic = isPublic.value
   if (allowPlay.value !== (props.room.allowPlay !== false)) patch.allowPlay = allowPlay.value
-  if (selectedRomId.value && selectedRomId.value !== props.room.romId) patch.romId = selectedRomId.value
   if (clearPw.value) patch.password = null
   else if (password.value) patch.password = password.value
 
@@ -203,6 +152,20 @@ async function submit() {
 .dh { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
 .dh h3 { margin: 0; font-size: 17px; font-weight: 600; }
 .form { display: flex; flex-direction: column; gap: 14px; }
+
+.locked-rom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-2);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.locked-rom strong { color: var(--text-primary); font-size: 14px; }
+.locked-note { margin: 6px 0 0; color: var(--text-tertiary); font-size: 11px; }
 
 .room-hint {
   padding: 10px 14px;

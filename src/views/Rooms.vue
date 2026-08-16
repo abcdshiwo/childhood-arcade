@@ -33,7 +33,7 @@
             <div class="row-meta">
               <span class="meta-item">
                 <span class="pc-dot" :style="{ background: platformColor(r.romPlatform) }"></span>
-                {{ platformLabel(r.romPlatform) }} · {{ r.romTitle }}
+                {{ platformLabel(r.romPlatform) }} · {{ r.romTitle }} · {{ r.romVersionLabel || '原版' }} · {{ r.coreName }}
               </span>
               <code class="meta-code">{{ r.code }}</code>
             </div>
@@ -80,7 +80,7 @@
             <div class="row-meta">
               <span class="meta-item">
                 <span class="pc-dot" :style="{ background: platformColor(r.romPlatform) }"></span>
-                {{ platformLabel(r.romPlatform) }} · {{ r.romTitle }}
+                {{ platformLabel(r.romPlatform) }} · {{ r.romTitle }} · {{ r.romVersionLabel || '原版' }} · {{ r.coreName }}
               </span>
               <span class="meta-item">@{{ r.hostUsername }}</span>
               <code class="meta-code">{{ r.code }}</code>

@@ -28,8 +28,11 @@
                   :class="{ selected: selectedRom?.id === r.id }"
                   @click="selectedRom = r"
                 >
-                  <span class="rt">{{ r.title }}</span>
-                  <span class="rp">{{ r.platform }}</span>
+                  <span class="rt">
+                    {{ r.title }}
+                    <small>{{ r.setName || r.setNameNormalized }} · {{ r.versionLabel || '原版' }}</small>
+                  </span>
+                  <span class="rp">{{ r.coreName }} {{ r.coreVersion }}</span>
                 </button>
               </div>
               <div v-else class="rom-empty">{{ roms.length ? '没有匹配结果' : '你还没有 ROM，先去上传或让管理员公开一些 ROM' }}</div>
@@ -112,7 +115,8 @@ const filteredRoms = computed(() => {
   const q = romQuery.value.trim().toLowerCase()
   if (!q) return roms.value
   return roms.value.filter((r) =>
-    r.title.toLowerCase().includes(q) || r.platform.toLowerCase().includes(q),
+    [r.title, r.platform, r.setName, r.setNameNormalized, r.versionLabel, r.coreName]
+      .some((value) => String(value || '').toLowerCase().includes(q)),
   )
 })
 
@@ -196,7 +200,8 @@ async function submit() {
 .rom-row:last-child { border-bottom: none; }
 .rom-row:hover { background: var(--bg-3); }
 .rom-row.selected { background: var(--accent-soft); color: var(--accent); }
-.rt { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rt small { display: block; margin-top: 2px; color: var(--text-tertiary); font-size: 10px; font-weight: 400; }
 .rp { color: var(--text-tertiary); font-size: 11px; margin-left: 8px; flex-shrink: 0; }
 .rom-empty { padding: 14px; font-size: 12px; color: var(--text-tertiary); text-align: center; }
 

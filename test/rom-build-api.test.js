@@ -28,17 +28,27 @@ const assetRoot = join(fixtureDirectory, 'library-assets')
 
 process.env.DB_PATH = databasePath
 process.env.LIBRARY_ASSET_ROOT = assetRoot
+process.env.SAVES_DIR = join(fixtureDirectory, 'saves')
 process.env.MAX_UPLOAD_BYTES = '8'
 
 let fixture
 fixture = await createFixture()
 
-const [{ romRoutes, romBuildRoutes }, { coreRoutes }, { biosRoutes }, { adminRoutes }] =
+const [
+  { romRoutes, romBuildRoutes },
+  { coreRoutes },
+  { biosRoutes },
+  { adminRoutes },
+  { roomRoutes },
+  { saveRoutes },
+] =
   await Promise.all([
     import('../server/routes/roms.js'),
     import('../server/routes/cores.js'),
     import('../server/routes/bios.js'),
     import('../server/routes/admin.js'),
+    import('../server/routes/rooms.js'),
+    import('../server/routes/saves.js'),
   ])
 
 const app = new Hono()
@@ -47,6 +57,8 @@ app.route('/api/rom-builds', romBuildRoutes ?? new Hono())
 app.route('/api/cores', coreRoutes)
 app.route('/api/bios', biosRoutes)
 app.route('/api/admin', adminRoutes)
+app.route('/api/rooms', roomRoutes)
+app.route('/api/saves', saveRoutes)
 
 const { db } = await import('../server/db/index.js')
 
@@ -949,4 +961,89 @@ test('runtime helpers use exact build core URLs and preserve server mount order'
   await options.resolveCoreJs('ignored')
   await options.resolveCoreWasm('ignored')
   assert.deepEqual(coreRequests, [data.build.core.jsUrl, data.build.core.wasmUrl])
+})
+
+test('room creation locks the current ready build and never follows a later active build', async () => {
+  const rejected = await json('/api/rooms', {
+    method: 'POST',
+    token: 'owner-token',
+    body: { name: 'Unverified', romId: 103, isPublic: false },
+  })
+  assert.equal(rejected.response.status, 409)
+
+  const created = await json('/api/rooms', {
+    method: 'POST',
+    token: 'owner-token',
+    body: { name: 'Pinned Parent', romId: 101, isPublic: false },
+  })
+  assert.equal(created.response.status, 200)
+  assert.equal(created.data.romBuildId, 1001)
+  assert.equal(created.data.romSetName, 'parent')
+  assert.equal(created.data.romVersionLabel, null)
+  assert.equal(created.data.coreName, 'mame2003_plus')
+  assert.equal(created.data.coreVersion, '62c7089')
+
+  const replacement = addAsset(db.$client, {
+    id: 5000,
+    kind: 'rom',
+    bytes: 'replacement-ready-rom',
+  })
+  insertBuild(db.$client, {
+    id: 5000,
+    romId: 101,
+    coreArtifactId: 20,
+    archive: replacement,
+    acceptedResult: 'passed',
+  })
+
+  const mine = await json('/api/rooms/mine', { token: 'owner-token' })
+  const pinned = mine.data.rooms.find((room) => room.id === created.data.id)
+  assert.equal(pinned.romBuildId, 1001)
+  assert.equal(pinned.buildFingerprint, sha256('build:1001'))
+  assert.equal(
+    db.$client.prepare('SELECT rom_build_id FROM rooms WHERE id = ?').get(created.data.id).rom_build_id,
+    1001,
+  )
+})
+
+test('cloud saves are isolated by immutable build and fingerprint identity', async () => {
+  const first = await app.request('/api/saves/101?buildId=1001&slot=0', {
+    method: 'POST',
+    headers: authHeaders('owner-token', { 'content-type': 'application/octet-stream' }),
+    body: Buffer.from('state-old-build'),
+  })
+  assert.equal(first.status, 200)
+  const firstMeta = await first.json()
+  assert.equal(firstMeta.romBuildId, 1001)
+  assert.equal(firstMeta.buildFingerprint, sha256('build:1001'))
+  assert.equal(firstMeta.coreArtifactFingerprint, fixture.coreFingerprints.get(20))
+
+  const second = await app.request('/api/saves/101?buildId=5000&slot=0', {
+    method: 'POST',
+    headers: authHeaders('owner-token', { 'content-type': 'application/octet-stream' }),
+    body: Buffer.from('state-new-build'),
+  })
+  assert.equal(second.status, 200)
+  const secondMeta = await second.json()
+  assert.equal(secondMeta.romBuildId, 5000)
+  assert.notEqual(secondMeta.buildFingerprint, firstMeta.buildFingerprint)
+
+  assert.equal(
+    db.$client.prepare('SELECT COUNT(*) AS n FROM save_states WHERE user_id = 1 AND rom_id = 101').get().n,
+    2,
+  )
+  for (const [buildId, expected] of [[1001, 'state-old-build'], [5000, 'state-new-build']]) {
+    const loaded = await app.request(`/api/saves/101?buildId=${buildId}&slot=0`, {
+      headers: authHeaders('owner-token'),
+    })
+    assert.equal(loaded.status, 200)
+    assert.equal(Buffer.from(await loaded.arrayBuffer()).toString(), expected)
+  }
+
+  const mismatched = await app.request('/api/saves/102?buildId=1001&slot=0', {
+    method: 'POST',
+    headers: authHeaders('owner-token', { 'content-type': 'application/octet-stream' }),
+    body: Buffer.from('wrong-rom'),
+  })
+  assert.equal(mismatched.status, 409)
 })

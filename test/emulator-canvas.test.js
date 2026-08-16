@@ -342,3 +342,28 @@ test('MyRoms can unpublish a public build even after compatibility regresses', a
   assert.match(source, /:disabled="rom\.compatStatus !== 'ready' && !rom\.isPublic"/)
   assert.match(source, /if \(rom\.isPublic\) return '设为私密'/)
 })
+
+test('room Player boots only the room locked build and disables version switching', async () => {
+  const source = await readFile(new URL('../src/views/Player.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /api\.roomJoin\(roomCode, pw\)/)
+  assert.match(source, /api\.romBuild\(room\.romBuildId\)/)
+  assert.match(source, /activeBuild:\s*locked\?\.build/)
+  assert.match(source, /v-if="!isRoomMode && siblings\.length > 1"/)
+  assert.match(source, /if \(isRoomMode\) return/)
+})
+
+test('save state client and Player scope cloud and local saves to the immutable build', async () => {
+  const [player, client] = await Promise.all([
+    readFile(new URL('../src/views/Player.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/api/client.js', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(client, /saveLoad:\s*async \(romId, buildId, slot = 0\)/)
+  assert.match(client, /buildId=\$\{encodeURIComponent\(buildId\)\}/)
+  assert.match(client, /saveUpload:\s*async \(romId, buildId, blob, slot = 0\)/)
+  assert.match(player, /state:\$\{build\.id\}:\$\{build\.core\.artifactFingerprint\}:\$\{build\.contentManifestSha256\}/)
+  assert.match(player, /function legacySaveKey\(\)[\s\S]*state:\$\{platformInfo\.value\.core\}:\$\{romMeta\.value\.id\}/)
+  assert.match(player, /legacySaveDecisionKey/)
+  assert.match(player, /window\.confirm/)
+})
