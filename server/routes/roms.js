@@ -92,7 +92,19 @@ function canonicalSetName(fileName) {
   return normalized || `upload_${createHash('sha256').update(fileName).digest('hex').slice(0, 12)}`
 }
 
-function archiveFileName(rom) {
+function runtimeArchiveFileName(value) {
+  if (typeof value !== 'string') return null
+  const leaf = value.replaceAll('\\', '/').split('/').at(-1)?.trim()
+  if (!leaf || leaf.length > 255 || /[\u0000-\u001f\u007f]/.test(leaf)) return null
+  return leaf
+}
+
+function archiveFileName(build, rom) {
+  try {
+    const stored = JSON.parse(build.staticFailureDetailsJson || 'null')?.runtimeArchiveFileName
+    const fileName = runtimeArchiveFileName(stored)
+    if (fileName) return fileName
+  } catch {}
   const extension = PLATFORM_ARCHIVE_EXTENSION[rom.platform] || '.bin'
   return `${rom.setNameNormalized}${extension}`
 }
@@ -221,7 +233,7 @@ async function hydrateBuilds(buildIds) {
       const archiveRom = romById.get(build.romId)
       const asset = assetById.get(build.archiveAssetId)
       if (!archiveRom || !asset) return null
-      const fileName = archiveFileName(archiveRom)
+      const fileName = archiveFileName(build, archiveRom)
       return {
         buildId: build.id,
         role,
@@ -634,6 +646,9 @@ romRoutes.post('/upload', requireAuth, async (c) => {
           contentManifestSha256,
           buildFingerprint,
           staticStatus: 'complete',
+          staticFailureDetailsJson: JSON.stringify({
+            runtimeArchiveFileName: runtimeArchiveFileName(file.name),
+          }),
           archiveLayout: runtimeParentBuild ? 'split' : 'standalone',
           runtimeParentBuildId: runtimeParentBuild?.id ?? null,
         }).returning().get()

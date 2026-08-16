@@ -207,6 +207,18 @@ async function createFixture() {
     bytes: 'mame-wasm',
     mimeType: 'application/wasm',
   })
+  const pcsxJs = addAsset(contracted, {
+    id: 8,
+    kind: 'core_js',
+    bytes: 'pcsx-js',
+    mimeType: 'application/javascript',
+  })
+  const pcsxWasm = addAsset(contracted, {
+    id: 9,
+    kind: 'core_wasm',
+    bytes: 'pcsx-wasm',
+    mimeType: 'application/wasm',
+  })
   const biosMember = addAsset(contracted, {
     id: 5,
     kind: 'bios',
@@ -240,7 +252,9 @@ async function createFixture() {
       (10, 'fbneo', '1.0.0.03', 'fbneo-commit', ?, ?, ?, ?, NULL, NULL,
        NULL, NULL, ?, '{}', 1),
       (20, 'mame2003_plus', '62c7089', 'mame-commit', ?, ?, ?, ?, NULL, NULL,
-       ?, ?, ?, ?, 1)
+       ?, ?, ?, ?, 1),
+      (30, 'pcsx_rearmed', '1.0.0', 'pcsx-commit', ?, ?, ?, ?, NULL, NULL,
+       NULL, NULL, ?, '{}', 1)
   `).run(
     fbneoJs.id,
     fbneoJs.sha,
@@ -267,6 +281,11 @@ async function createFixture() {
         }],
       },
     }),
+    pcsxJs.id,
+    pcsxJs.sha,
+    pcsxWasm.id,
+    pcsxWasm.sha,
+    coreFingerprints.set(30, sha256('core:pcsx')).get(30),
   )
 
   const archiveById = new Map()
@@ -287,7 +306,7 @@ async function createFixture() {
   const result = {
     sqlite: contracted,
     coreFingerprints,
-    core: { fbneoJs, fbneoWasm, mameJs, mameWasm, biosMember, biosManifest },
+    core: { fbneoJs, fbneoWasm, mameJs, mameWasm, pcsxJs, pcsxWasm, biosMember, biosManifest },
     thumbnail,
     archiveById,
   }
@@ -567,6 +586,46 @@ test('reupload keeps retired build archive names immutable', async () => {
   assert.match(
     retired.data.build.archives[0].url,
     /^\/api\/rom-builds\/1006\/file\/room_game\.zip\?forBuild=1006$/,
+  )
+})
+
+test('reupload preserves each immutable build\'s supported runtime format', async () => {
+  const firstForm = new FormData()
+  firstForm.set('title', 'PSX Disc')
+  firstForm.set('platform', 'psx')
+  firstForm.set('file', new Blob(['chd']), 'disc.chd')
+
+  const first = await json('/api/roms/upload', {
+    method: 'POST',
+    token: 'owner-token',
+    body: firstForm,
+  })
+  assert.equal(first.response.status, 200)
+  assert.equal(first.data.fileName, 'disc.chd')
+
+  const secondForm = new FormData()
+  secondForm.set('title', 'PSX Disc')
+  secondForm.set('platform', 'psx')
+  secondForm.set('file', new Blob(['bin']), 'disc.bin')
+
+  const second = await json('/api/roms/upload', {
+    method: 'POST',
+    token: 'owner-token',
+    body: secondForm,
+  })
+  assert.equal(second.response.status, 200)
+  assert.equal(second.data.id, first.data.id)
+  assert.notEqual(second.data.buildId, first.data.buildId)
+  assert.equal(second.data.fileName, 'disc.bin')
+
+  const retired = await json(`/api/rom-builds/${first.data.buildId}`, {
+    token: 'admin-token',
+  })
+  assert.equal(retired.response.status, 200)
+  assert.equal(retired.data.build.archives[0].fileName, 'disc.chd')
+  assert.match(
+    retired.data.build.archives[0].url,
+    new RegExp(`/api/rom-builds/${first.data.buildId}/file/disc\\.chd\\?forBuild=${first.data.buildId}$`),
   )
 })
 
