@@ -262,6 +262,10 @@ test('keyboard focus is visible, activates direct play, and reduced motion is re
 
   await page.keyboard.press('Enter')
   assert.equal(await page.evaluate(() => window.__galleryRoute), '/play/1')
+
+  await page.locator('.game-card[data-rom-id="2"]').focus()
+  await page.keyboard.press('Space')
+  assert.equal(await page.evaluate(() => window.__galleryRoute), '/play/2')
 })
 
 test('browser search and variant filters operate across the full 620-card data set', async (t) => {
@@ -273,11 +277,30 @@ test('browser search and variant filters operate across the full 620-card data s
   await openGallery(page, server)
 
   const search = page.locator('input[aria-label="搜索游戏"]')
-  await search.fill('bulk_620')
-  await page.waitForFunction(() => document.querySelectorAll('.game-card').length === 1)
+  const assertSearchCount = async (term, count) => {
+    await search.fill(term)
+    await page.waitForFunction(
+      (expected) => document.querySelectorAll('.game-card').length === expected,
+      count,
+    )
+    assert.equal(await page.locator('.game-card').count(), count, `search: ${term}`)
+  }
+
+  await assertSearchCount('bulk_620', 1)
   assert.equal(await page.locator('.game-card').getAttribute('data-rom-id'), '620')
+  await assertSearchCount('超级街机收藏版', 62)
+  await assertSearchCount('Revision 619', 1)
+  await assertSearchCount('mame2003_plus', 310)
+  await assertSearchCount('Neo Geo MVS', 310)
+  await assertSearchCount('arcade', CARD_COUNT)
+  await assertSearchCount('hack', 207)
 
   await search.fill('')
+  await page.waitForFunction((count) => document.querySelectorAll('.game-card').length === count, CARD_COUNT)
+  await page.locator('[data-testid="core-filter"]').selectOption('mame2003_plus')
+  await page.waitForFunction(() => document.querySelectorAll('.game-card').length === 310)
+  assert.equal(await page.locator('.game-card').count(), 310)
+  await page.locator('[data-testid="core-filter"]').selectOption('all')
   await page.waitForFunction((count) => document.querySelectorAll('.game-card').length === count, CARD_COUNT)
   await page.locator('[data-testid="variant-filter"]').selectOption('hack')
   await page.waitForFunction(() => document.querySelectorAll('.game-card').length === 207)

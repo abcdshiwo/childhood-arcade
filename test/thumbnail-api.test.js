@@ -84,12 +84,19 @@ function insertRom(sqlite, {
   )
 }
 
-function insertReadyBuild(sqlite, { id, romId, archive, coreFingerprint }) {
+function insertReadyBuild(sqlite, {
+  id,
+  romId,
+  archive,
+  coreFingerprint,
+  hardwareFamily = null,
+}) {
   sqlite.prepare(`
     INSERT INTO rom_builds
       (id, rom_id, core_artifact_id, archive_asset_id, archive_sha256,
-       content_manifest_sha256, build_fingerprint, static_status, archive_layout)
-    VALUES (?, ?, 10, ?, ?, ?, ?, 'complete', 'standalone')
+       content_manifest_sha256, build_fingerprint, static_status, archive_layout,
+       static_failure_details_json)
+    VALUES (?, ?, 10, ?, ?, ?, ?, 'complete', 'standalone', ?)
   `).run(
     id,
     romId,
@@ -97,6 +104,7 @@ function insertReadyBuild(sqlite, { id, romId, archive, coreFingerprint }) {
     archive.hash,
     sha256(`manifest:${id}`),
     sha256(`build:${id}`),
+    hardwareFamily ? JSON.stringify({ hardwareFamily }) : null,
   )
   sqlite.prepare(`
     INSERT INTO build_validation_runs
@@ -221,6 +229,7 @@ async function createFixture() {
       romId: row.id,
       archive,
       coreFingerprint,
+      hardwareFamily: row.id === 101 ? 'Neo Geo MVS' : null,
     })
   }
 
@@ -292,6 +301,8 @@ test('public rows expose full-SHA active thumbnail URLs and preserve match evide
   }]))
   assert.deepEqual([...evidence.keys()].sort(), ['alias', 'exact', 'parent', 'source_reference'])
   assert.equal(evidence.get('exact').source, 'exact_set')
+  assert.equal(roms.find((rom) => rom.id === 101).hardwareFamily, 'Neo Geo MVS')
+  assert.equal(roms.find((rom) => rom.id === 102).hardwareFamily, null)
   assert.equal(evidence.get('alias').source, 'legacy_alias')
   assert.equal(evidence.get('parent').source, 'exact_set')
   assert.equal(evidence.get('source_reference').source, 'reference_only')

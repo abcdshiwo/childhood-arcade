@@ -196,7 +196,7 @@
               </div>
               <div>
                 <dt>版本</dt>
-                <dd class="game-version">{{ rom.versionLabel || '原版' }}</dd>
+                <dd class="game-version">{{ rom.versionLabel || '未标注' }}</dd>
               </div>
               <div>
                 <dt>核心</dt>
@@ -336,7 +336,7 @@ function variantBadges(rom) {
   }
   const badges = rom.variantKind && labels[rom.variantKind]
     ? [{ key: rom.variantKind, label: labels[rom.variantKind] }]
-    : []
+    : [{ key: 'unknown', label: '未分类' }]
   if (isClone(rom)) badges.push({ key: 'clone', label: 'CLONE' })
   return badges
 }
@@ -388,7 +388,7 @@ function hardwareDisplay(rom) {
 }
 
 function cardAriaLabel(rom) {
-  return `游玩 ${rom.title}，${rom.versionLabel || '原版'}，${rom.setName || rom.setNameNormalized || ''}`
+  return `游玩 ${rom.title}，${rom.versionLabel || '未标注'}，${rom.setName || rom.setNameNormalized || ''}`
 }
 
 async function toggleFavorite(rom) {
@@ -915,6 +915,7 @@ function onCardKeydown(event, rom) {
 .variant-hack { color: var(--arcade-magenta); background: rgba(255, 59, 189, 0.07); border-color: rgba(255, 59, 189, 0.38); }
 .variant-bootleg { color: var(--arcade-amber); background: rgba(255, 194, 71, 0.07); border-color: rgba(255, 194, 71, 0.38); }
 .variant-clone { color: var(--arcade-cyan); background: rgba(33, 230, 255, 0.07); border-color: rgba(33, 230, 255, 0.35); }
+.variant-unknown { color: var(--arcade-muted); background: rgba(154, 175, 181, 0.06); border-color: rgba(154, 175, 181, 0.3); }
 
 .game-metadata {
   display: grid;

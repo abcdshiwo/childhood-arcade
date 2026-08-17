@@ -115,6 +115,8 @@ function galleryRows() {
       id: 5,
       title: '无截图游戏',
       setName: 'noimage',
+      variantKind: null,
+      versionLabel: null,
       thumbnailUrl: null,
       thumbnailMatchKind: null,
       thumbnailSourceSetName: null,
@@ -184,6 +186,10 @@ describe('CRT gallery', () => {
 
     const cloneBadges = card(wrapper, 3).findAll('.variant-badge').map((badge) => badge.text())
     expect(cloneBadges).toEqual(['BOOTLEG', 'CLONE'])
+
+    const unclassified = card(wrapper, 5)
+    expect(unclassified.get('.game-version').text()).toBe('未标注')
+    expect(unclassified.get('.variant-badge').text()).toBe('未分类')
 
     await hack.trigger('click')
     expect(harness.routerPush).toHaveBeenCalledWith('/play/2')

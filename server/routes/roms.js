@@ -99,6 +99,24 @@ function runtimeArchiveFileName(value) {
   return leaf
 }
 
+function runtimeHardwareFamily(value) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized || normalized.length > 80 || /[\u0000-\u001f\u007f]/.test(normalized)) {
+    return null
+  }
+  return normalized
+}
+
+function buildHardwareFamily(build) {
+  try {
+    const details = JSON.parse(build?._build?.staticFailureDetailsJson || 'null')
+    return runtimeHardwareFamily(details?.hardwareFamily)
+  } catch {
+    return null
+  }
+}
+
 function archiveFileName(build, rom) {
   try {
     const stored = JSON.parse(build.staticFailureDetailsJson || 'null')?.runtimeArchiveFileName
@@ -322,6 +340,7 @@ export async function serializeRomRows(romRows, {
       id: rom.id,
       title: rom.title,
       platform: rom.platform,
+      hardwareFamily: buildHardwareFamily(build),
       setName: rom.setNameNormalized,
       setNameNormalized: rom.setNameNormalized,
       variantKind: rom.variantKind ?? null,
