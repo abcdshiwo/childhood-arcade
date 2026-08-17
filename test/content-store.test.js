@@ -555,3 +555,23 @@ test('cleanup removes only newly-created, unreferenced objects', (t) => {
   assert.equal(existsSync(existing.absolutePath), true, 'pre-existing object must remain')
   assert.equal(existsSync(created.absolutePath), false)
 })
+
+test('content mutation lock serializes publishers and cleanup by owner token', (t) => {
+  const { root, store } = makeFixture(t)
+  const lock = store.acquireMutationLock({ operation: 'fixture-publish' })
+  assert.equal(existsSync(lock.path), true)
+  const record = JSON.parse(readFileSync(lock.path, 'utf8'))
+  assert.equal(record.kind, 'arcade-content-mutation-lock-v1')
+  assert.equal(record.token, lock.token)
+
+  const competing = createContentStore({ root })
+  assert.throws(
+    () => competing.acquireMutationLock({ operation: 'fixture-cleanup' }),
+    /content mutation lock already exists/i,
+  )
+  lock.release()
+  assert.equal(existsSync(lock.path), false)
+
+  const resumed = competing.acquireMutationLock({ operation: 'fixture-cleanup' })
+  resumed.release()
+})

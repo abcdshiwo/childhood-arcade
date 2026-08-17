@@ -592,6 +592,19 @@ romRoutes.post('/upload', requireAuth, async (c) => {
 
   const bytes = Buffer.from(await file.arrayBuffer())
   const archiveSha256 = createHash('sha256').update(bytes).digest('hex')
+  let mutationLock
+  try {
+    mutationLock = contentStore.acquireMutationLock({
+      operation: 'manual-upload',
+      userId: user.id,
+    })
+  } catch (error) {
+    if (/content mutation lock already exists/i.test(error.message)) {
+      return c.json({ error: '内容库正在维护，请稍后重试' }, 503)
+    }
+    throw error
+  }
+  try {
   const stored = contentStore.putBytes({
     bytes,
     expectedSha256: archiveSha256,
@@ -699,7 +712,10 @@ romRoutes.post('/upload', requireAuth, async (c) => {
     if (/同名 ROM|父 ROM/.test(error.message)) return c.json({ error: error.message }, 409)
     throw error
   }
-  return c.json(await serializeRomById(romId))
+    return c.json(await serializeRomById(romId))
+  } finally {
+    mutationLock.release()
+  }
 })
 
 romRoutes.patch('/:id', requireAuth, async (c) => {
@@ -836,29 +852,46 @@ romRoutes.delete('/:id', requireAuth, async (c) => {
     return c.json({ ok: true, mode: 'soft' })
   }
 
-  const builds = await db.select().from(romBuilds).where(eq(romBuilds.romId, id))
-  const blocker = await hardDeleteBlocker(rom, builds)
-  if (blocker) return c.json({ error: blocker }, 409)
-  const refs = await db.select().from(romAssetRefs).where(eq(romAssetRefs.romId, id))
-  const candidateAssetIds = new Set([
-    ...builds.map((build) => build.archiveAssetId).filter(Number.isInteger),
-    ...refs.map((ref) => ref.assetId),
-  ])
-  db.transaction((tx) => {
-    tx.update(roms).set({ activeBuildId: null, activeThumbnailRefId: null })
-      .where(eq(roms.id, id)).run()
-    tx.delete(romAssetRefs).where(eq(romAssetRefs.romId, id)).run()
-    tx.delete(romBuilds).where(eq(romBuilds.romId, id)).run()
-    tx.delete(roms).where(eq(roms.id, id)).run()
-  })
-  for (const assetId of candidateAssetIds) {
-    if (await assetStillReferenced(assetId)) continue
-    const asset = (await db.select().from(assets).where(eq(assets.id, assetId)).limit(1))[0]
-    if (!asset) continue
-    try { unlinkSync(resolveAssetPath(asset)) } catch {}
-    await db.delete(assets).where(eq(assets.id, assetId))
+  let mutationLock
+  try {
+    mutationLock = contentStore.acquireMutationLock({
+      operation: 'hard-delete',
+      userId: user.id,
+      romId: id,
+    })
+  } catch (error) {
+    if (/content mutation lock already exists/i.test(error.message)) {
+      return c.json({ error: '内容库正在维护，请稍后重试' }, 503)
+    }
+    throw error
   }
-  return c.json({ ok: true, mode: 'permanent', purgedCount: builds.length })
+  try {
+    const builds = await db.select().from(romBuilds).where(eq(romBuilds.romId, id))
+    const blocker = await hardDeleteBlocker(rom, builds)
+    if (blocker) return c.json({ error: blocker }, 409)
+    const refs = await db.select().from(romAssetRefs).where(eq(romAssetRefs.romId, id))
+    const candidateAssetIds = new Set([
+      ...builds.map((build) => build.archiveAssetId).filter(Number.isInteger),
+      ...refs.map((ref) => ref.assetId),
+    ])
+    db.transaction((tx) => {
+      tx.update(roms).set({ activeBuildId: null, activeThumbnailRefId: null })
+        .where(eq(roms.id, id)).run()
+      tx.delete(romAssetRefs).where(eq(romAssetRefs.romId, id)).run()
+      tx.delete(romBuilds).where(eq(romBuilds.romId, id)).run()
+      tx.delete(roms).where(eq(roms.id, id)).run()
+    })
+    for (const assetId of candidateAssetIds) {
+      if (await assetStillReferenced(assetId)) continue
+      const asset = (await db.select().from(assets).where(eq(assets.id, assetId)).limit(1))[0]
+      if (!asset) continue
+      try { unlinkSync(resolveAssetPath(asset)) } catch {}
+      await db.delete(assets).where(eq(assets.id, assetId))
+    }
+    return c.json({ ok: true, mode: 'permanent', purgedCount: builds.length })
+  } finally {
+    mutationLock.release()
+  }
 })
 
 async function roomHostCanRead(user, buildId) {

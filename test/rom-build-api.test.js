@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
@@ -15,6 +17,7 @@ import test, { after } from 'node:test'
 import Database from 'better-sqlite3'
 import { Hono } from 'hono'
 
+import { createContentStore } from '../server/services/content-store.js'
 import {
   applyMigrationEntries,
   loadMigrationManifest,
@@ -695,6 +698,29 @@ test('normal upload creates one private unverified logical ROM, asset, and manua
   assert.deepEqual(readFileSync(assetPath(asset.sha256)), Buffer.from('zip!'))
 })
 
+test('normal upload respects the shared content mutation lifecycle lock', async () => {
+  const lock = createContentStore({ root: assetRoot }).acquireMutationLock({ operation: 'batch-rollback' })
+  try {
+    const form = new FormData()
+    form.set('title', 'Locked Upload')
+    form.set('platform', 'arcade')
+    form.set('file', new Blob(['lock'], { type: 'application/zip' }), 'locked_upload.zip')
+    const { response, data } = await json('/api/roms/upload', {
+      method: 'POST',
+      token: 'owner-token',
+      body: form,
+    })
+    assert.equal(response.status, 503)
+    assert.match(data.error, /维护|重试|busy/i)
+  } finally {
+    lock.release()
+  }
+  assert.equal(
+    db.$client.prepare("SELECT COUNT(*) AS n FROM roms WHERE set_name_normalized = 'locked_upload'").get().n,
+    0,
+  )
+})
+
 test('manual variant upload creates a split build pinned to the active parent build', async () => {
   const form = new FormData()
   form.set('title', 'Manual Split Variant')
@@ -815,6 +841,68 @@ test('hard delete rejects builds retained by import operation history', async ()
   assert.equal(blocked.response.status, 409)
   assert.match(blocked.data.error, /导入|历史|回滚|引用/)
   assert.equal(db.$client.prepare('SELECT COUNT(*) AS n FROM rom_builds WHERE id = 1009').get().n, 1)
+})
+
+test('hard delete respects the shared content mutation lifecycle lock', async () => {
+  const sqlite = db.$client
+  const romId = sqlite.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM roms').get().id
+  const buildId = sqlite.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM rom_builds').get().id
+  const assetId = sqlite.prepare('SELECT COALESCE(MAX(id), 0) + 1 AS id FROM assets').get().id
+  const archive = addAsset(sqlite, {
+    id: assetId,
+    kind: 'rom',
+    bytes: 'hard-delete-lock-fixture',
+  })
+  insertRom(sqlite, {
+    id: romId,
+    title: 'Hard Delete Lock Fixture',
+    setName: 'hard_delete_lock_fixture',
+    isPublic: false,
+  })
+  insertBuild(sqlite, {
+    id: buildId,
+    romId,
+    coreArtifactId: 10,
+    archive,
+  })
+
+  const expectedRom = sqlite.prepare('SELECT * FROM roms WHERE id = ?').get(romId)
+  const expectedBuild = sqlite.prepare('SELECT * FROM rom_builds WHERE id = ?').get(buildId)
+  const expectedAsset = sqlite.prepare('SELECT * FROM assets WHERE id = ?').get(assetId)
+  const lock = createContentStore({ root: assetRoot }).acquireMutationLock({ operation: 'batch-commit' })
+  let blocked
+  try {
+    blocked = await json(`/api/roms/${romId}?permanent=1`, {
+      method: 'DELETE',
+      token: 'owner-token',
+    })
+  } finally {
+    lock.release()
+  }
+
+  assert.equal(blocked.response.status, 503)
+  assert.match(blocked.data.error, /维护|重试|busy/i)
+  assert.deepEqual(sqlite.prepare('SELECT * FROM roms WHERE id = ?').get(romId), expectedRom)
+  assert.deepEqual(sqlite.prepare('SELECT * FROM rom_builds WHERE id = ?').get(buildId), expectedBuild)
+  assert.deepEqual(sqlite.prepare('SELECT * FROM assets WHERE id = ?').get(assetId), expectedAsset)
+  assert.deepEqual(readFileSync(assetPath(archive.sha)), archive.bytes)
+
+  const deleted = await json(`/api/roms/${romId}?permanent=1`, {
+    method: 'DELETE',
+    token: 'owner-token',
+  })
+  assert.equal(deleted.response.status, 200)
+  assert.equal(deleted.data.mode, 'permanent')
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM roms WHERE id = ?').get(romId).n, 0)
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM rom_builds WHERE id = ?').get(buildId).n, 0)
+  assert.equal(sqlite.prepare('SELECT COUNT(*) AS n FROM assets WHERE id = ?').get(assetId).n, 0)
+  assert.equal(existsSync(assetPath(archive.sha)), false)
+
+  for (const asset of sqlite.prepare('SELECT file_path, file_size FROM assets').all()) {
+    const fullPath = join(assetRoot, asset.file_path)
+    assert.equal(existsSync(fullPath), true, `missing asset file ${asset.file_path}`)
+    assert.equal(statSync(fullPath).size, asset.file_size, `size mismatch for ${asset.file_path}`)
+  }
 })
 
 test('ROM, core, and BIOS routes reject a symlink or junction below the asset root', async (t) => {

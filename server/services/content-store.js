@@ -261,7 +261,7 @@ function syncPublishedContentMetadata({
   }
 }
 
-function removeOwnedLegacyBackfillLock(lockPath, token) {
+function removeOwnedLock(lockPath, token, kind) {
   if (!existsSync(lockPath)) return false
   let current
   try {
@@ -270,7 +270,7 @@ function removeOwnedLegacyBackfillLock(lockPath, token) {
     return false
   }
   if (
-    current?.kind !== 'legacy-library-backfill-lock-v1' ||
+    current?.kind !== kind ||
     current?.token !== token
   ) {
     return false
@@ -551,21 +551,17 @@ export function createContentStore({
     return removed
   }
 
-  function acquireLegacyBackfillLock(metadata = {}) {
-    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
-      throw new TypeError('legacy backfill lock metadata must be an object')
-    }
+  function acquireOwnedLock({ fileName, kind, label, metadata }) {
     const createdDirectories = collectMissingDirectories(absoluteRoot)
     mkdirSync(absoluteRoot, { recursive: true })
     assertNoLinks(absoluteRoot, absoluteRoot)
 
-    const lockPath = join(absoluteRoot, '.legacy-library-backfill.lock')
+    const lockPath = join(absoluteRoot, fileName)
     const token = randomBytes(24).toString('hex')
     const lockRecord = {
-      databasePath: metadata.databasePath ?? null,
-      manifestPath: metadata.manifestPath ?? null,
+      ...metadata,
       schemaVersion: 1,
-      kind: 'legacy-library-backfill-lock-v1',
+      kind,
       token,
       pid: process.pid,
       startedAt: new Date().toISOString(),
@@ -586,12 +582,12 @@ export function createContentStore({
       }
       if (acquired) {
         try {
-          removeOwnedLegacyBackfillLock(lockPath, token)
+          removeOwnedLock(lockPath, token, kind)
         } catch {}
       }
       if (error?.code === 'EEXIST') {
         throw new Error(
-          `legacy backfill lock already exists at ${lockPath}; treat it as active or stale and inspect it manually`,
+          `${label} lock already exists at ${lockPath}; treat it as active or stale and inspect it manually`,
           { cause: error },
         )
       }
@@ -610,7 +606,7 @@ export function createContentStore({
         preSyncedPublishedFile: 'synced',
       })
     } catch (error) {
-      removeOwnedLegacyBackfillLock(lockPath, token)
+      removeOwnedLock(lockPath, token, kind)
       throw error
     }
 
@@ -627,13 +623,13 @@ export function createContentStore({
           current = JSON.parse(readFileSync(lockPath, 'utf8'))
         } catch (error) {
           throw new Error(
-            `legacy backfill lock ${lockPath} disappeared or became unreadable; refusing to remove it`,
+            `${label} lock ${lockPath} disappeared or became unreadable; refusing to remove it`,
             { cause: error },
           )
         }
-        if (current?.token !== token) {
+        if (current?.kind !== kind || current?.token !== token) {
           throw new Error(
-            `legacy backfill lock ${lockPath} is no longer owned by this process; refusing to remove it`,
+            `${label} lock ${lockPath} is no longer owned by this process; refusing to remove it`,
           )
         }
         unlinkSync(lockPath)
@@ -653,6 +649,33 @@ export function createContentStore({
     })
   }
 
+  function acquireMutationLock(metadata = {}) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      throw new TypeError('content mutation lock metadata must be an object')
+    }
+    return acquireOwnedLock({
+      fileName: '.arcade-content-mutation.lock',
+      kind: 'arcade-content-mutation-lock-v1',
+      label: 'content mutation',
+      metadata,
+    })
+  }
+
+  function acquireLegacyBackfillLock(metadata = {}) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+      throw new TypeError('legacy backfill lock metadata must be an object')
+    }
+    return acquireOwnedLock({
+      fileName: '.legacy-library-backfill.lock',
+      kind: 'legacy-library-backfill-lock-v1',
+      label: 'legacy backfill',
+      metadata: {
+        databasePath: metadata.databasePath ?? null,
+        manifestPath: metadata.manifestPath ?? null,
+      },
+    })
+  }
+
   return Object.freeze({
     root: absoluteRoot,
     allowedSourceRoots: Object.freeze([...absoluteSourceRoots]),
@@ -660,6 +683,7 @@ export function createContentStore({
     putSource,
     putBytes,
     cleanupCreated,
+    acquireMutationLock,
     acquireLegacyBackfillLock,
   })
 }

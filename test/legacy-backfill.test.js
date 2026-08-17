@@ -1607,6 +1607,43 @@ test('a global backfill lock blocks another process before publication and is ne
   assert.equal(readFileSync(lock.path, 'utf8'), staleContents)
 })
 
+test('shared content mutation lock blocks apply before database or filesystem writes', (t) => {
+  const fixture = makeFixture(t)
+  const store = createContentStore({
+    root: fixture.assetRoot,
+    allowedSourceRoots: [fixture.sourceRoot],
+  })
+  const mutationLock = store.acquireMutationLock({ operation: 'active-upload' })
+  const legacyBefore = snapshotLegacyData(fixture.sqlite)
+  const backfillBefore = snapshotBackfilledData(fixture.sqlite)
+  const directoryBefore = readdirSync(fixture.assetRoot).sort()
+  const mutationLockBefore = readFileSync(mutationLock.path)
+
+  try {
+    assert.throws(
+      () =>
+        backfillLegacyLibrary({
+          sqlite: fixture.sqlite,
+          manifestPath: fixture.manifestPath,
+          assetRoot: fixture.assetRoot,
+          apply: true,
+        }),
+      /content mutation lock.*already exists|content.*mainten|busy/i,
+    )
+    assert.deepEqual(snapshotLegacyData(fixture.sqlite), legacyBefore)
+    assert.deepEqual(snapshotBackfilledData(fixture.sqlite), backfillBefore)
+    assert.deepEqual(readdirSync(fixture.assetRoot).sort(), directoryBefore)
+    assert.deepEqual(readFileSync(mutationLock.path), mutationLockBefore)
+    assert.equal(
+      existsSync(join(fixture.assetRoot, '.legacy-library-backfill.lock')),
+      false,
+    )
+    assert.deepEqual(listContentFiles(fixture.assetRoot), [])
+  } finally {
+    mutationLock.release()
+  }
+})
+
 test('real backfill holds the global lock through database commit and failure cleanup', (t) => {
   {
     const fixture = makeFixture(t)

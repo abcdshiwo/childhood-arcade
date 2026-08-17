@@ -1286,9 +1286,15 @@ export function backfillLegacyLibrary({
     databasePath: sqlite.name ?? null,
     manifestPath: loaded.manifestPath,
   })
+  let mutationLock = null
   const createdDuringPlanning = []
   let lockReleaseDurability = null
   try {
+    mutationLock = contentStore.acquireMutationLock({
+      operation: 'legacy-backfill',
+      databasePath: sqlite.name ?? null,
+      manifestPath: loaded.manifestPath,
+    })
     try {
       const writtenPlan = createPlan({
         manifest: loaded.manifest,
@@ -1322,7 +1328,11 @@ export function backfillLegacyLibrary({
       throw error
     }
   } finally {
-    lockReleaseDurability = backfillLock.release()
+    try {
+      if (mutationLock) mutationLock.release()
+    } finally {
+      lockReleaseDurability = backfillLock.release()
+    }
   }
 
   finalizeWrites(writes)
