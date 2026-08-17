@@ -1,5 +1,5 @@
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :class="{ 'app-shell--gallery': isGallery }">
     <AppHeader v-if="showChrome" />
     <router-view v-slot="{ Component, route }">
       <Transition name="page" mode="out-in">
@@ -23,6 +23,7 @@ import AppHeader from './components/AppHeader.vue'
 
 const route = useRoute()
 const showChrome = computed(() => !route.meta?.fullscreen)
+const isGallery = computed(() => route.name === 'Gallery')
 </script>
 
 <style>

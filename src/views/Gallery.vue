@@ -1,435 +1,1006 @@
 <template>
-  <div class="gallery-page container">
-    <header class="page-head">
-      <div>
-        <h1 class="page-title">游戏库</h1>
-        <p class="page-sub">{{ total }} 个游戏可以试玩，找一个开始吧</p>
-      </div>
-      <div class="page-head-actions">
-        <div class="search">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-          <input v-model="query" placeholder="搜索游戏" aria-label="搜索" />
-        </div>
-        <router-link v-if="isAuthed" to="/my" class="btn btn-primary">上传 ROM</router-link>
-        <router-link v-else to="/auth?mode=register" class="btn btn-primary">注册</router-link>
-      </div>
-    </header>
-
-    <div class="tabs">
-      <button
-        class="tab"
-        :class="{ active: activeTab === 'all' }"
-        @click="activeTab = 'all'"
-      >
-        全部 <span class="n">{{ total }}</span>
-      </button>
-      <button
-        v-if="isAuthed"
-        class="tab tab-fav"
-        :class="{ active: activeTab === 'favorites' }"
-        :disabled="favoriteCount === 0"
-        @click="activeTab = 'favorites'"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17.3 5.82 21l1.64-7.03L2 9.24l7.19-.61L12 2l2.81 6.63 7.19.61-5.46 4.73L18.18 21z"/></svg>
-        收藏 <span class="n">{{ favoriteCount }}</span>
-      </button>
-      <button
-        v-for="[key, group] in Object.entries(tabGroups)"
-        :key="key"
-        class="tab"
-        :class="{ active: activeTab === key }"
-        :disabled="tabCount(key) === 0"
-        @click="activeTab = key"
-      >
-        {{ group.label }} <span class="n">{{ tabCount(key) }}</span>
-      </button>
-    </div>
-
-    <div v-if="loading" class="grid">
-      <div v-for="i in 8" :key="i" class="tile-skel">
-        <div class="skeleton skel-art"></div>
-        <div class="skel-text">
-          <div class="skeleton" style="height: 13px; width: 75%;"></div>
-          <div class="skeleton" style="height: 11px; width: 45%;"></div>
-        </div>
-      </div>
-    </div>
-    <div v-else-if="!filtered.length" class="empty-state">
-      <h3>{{ query ? '没有匹配结果' : '游戏库为空' }}</h3>
-      <p v-if="!query">{{ isAuthed ? '上传你的第一个 ROM' : '登录后可以上传自己的 ROM' }}</p>
-      <p v-else>换个关键词试试</p>
-      <router-link v-if="!query && isAuthed" to="/my" class="btn btn-primary">去上传</router-link>
-      <router-link v-if="!query && !isAuthed" to="/auth" class="btn btn-primary">登录 / 注册</router-link>
-      <button v-if="query" class="btn" @click="query = ''">清除搜索</button>
-    </div>
-    <div v-else class="grid">
-      <article
-        v-for="rom in filtered"
-        :key="rom.id"
-        class="tile"
-        tabindex="0"
-        @click="play(rom)"
-        @keydown.enter="play(rom)"
-        :aria-label="rom.title"
-      >
-        <div class="tile-art" :style="{ background: artBg(rom.platform) }">
-          <span class="art-letter">{{ rom.title.slice(0, 1).toUpperCase() }}</span>
-          <button
-            v-if="isAuthed"
-            class="fav-btn"
-            :class="{ on: rom.isFavorite }"
-            :title="rom.isFavorite ? '取消收藏' : '收藏'"
-            @click.stop="toggleFavorite(rom)"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" :fill="rom.isFavorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 17.3 5.82 21l1.64-7.03L2 9.24l7.19-.61L12 2l2.81 6.63 7.19.61-5.46 4.73L18.18 21z"/></svg>
-          </button>
-          <span v-if="rom.versionCount" class="ver-badge" :title="`${rom.versionCount + 1} 个版本`">
-            {{ rom.versionCount + 1 }} 版本
-          </span>
-        </div>
-        <div class="tile-body">
-          <div class="tile-top">
-            <h3 class="tile-title">{{ rom.title }}</h3>
-            <span class="tile-plat">{{ platformLabel(rom.platform) }}</span>
+  <main class="gallery-page">
+    <div class="gallery-inner container">
+      <header class="gallery-head">
+        <div class="gallery-heading">
+          <div class="gallery-kicker">
+            <span class="status-led" aria-hidden="true"></span>
+            ARCADE LIBRARY
           </div>
-          <div class="tile-sub">
-            <span>{{ platformDisplay(rom.platform) }}</span>
-            <span v-if="rom.owner" class="owner">@{{ rom.owner.username }}</span>
-          </div>
+          <h1 class="page-title">游戏库</h1>
+          <p class="gallery-count" aria-live="polite">
+            <strong>{{ filtered.length }}</strong>
+            <span>/ {{ total }} 个可玩版本</span>
+          </p>
         </div>
-      </article>
-    </div>
 
-    <VersionPickerDialog
-      v-if="pickerRom"
-      :rom="pickerRom"
-      @close="pickerRom = null"
-      @pick="onVersionPicked"
-    />
-  </div>
+        <div class="gallery-head-actions">
+          <label class="search-box">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+            <input
+              v-model="query"
+              type="search"
+              placeholder="搜索标题、set、核心或版本"
+              aria-label="搜索游戏"
+            />
+          </label>
+          <router-link v-if="isAuthed" to="/my" class="library-action">
+            <svg aria-hidden="true" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3v12" />
+              <path d="m7 8 5-5 5 5" />
+              <path d="M5 15v4h14v-4" />
+            </svg>
+            上传 ROM
+          </router-link>
+          <router-link v-else to="/auth?mode=register" class="library-action">注册</router-link>
+        </div>
+      </header>
+
+      <nav class="library-tabs" aria-label="平台筛选">
+        <button
+          type="button"
+          class="library-tab"
+          :class="{ active: activeTab === 'all' }"
+          :aria-pressed="activeTab === 'all'"
+          @click="activeTab = 'all'"
+        >
+          全部 <span>{{ total }}</span>
+        </button>
+        <button
+          v-if="isAuthed"
+          type="button"
+          class="library-tab favorite-tab"
+          :class="{ active: activeTab === 'favorites' }"
+          :aria-pressed="activeTab === 'favorites'"
+          :disabled="favoriteCount === 0"
+          @click="activeTab = 'favorites'"
+        >
+          <svg aria-hidden="true" width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 17.3 5.82 21l1.64-7.03L2 9.24l7.19-.61L12 2l2.81 6.63 7.19.61-5.46 4.73L18.18 21z" />
+          </svg>
+          收藏 <span>{{ favoriteCount }}</span>
+        </button>
+        <button
+          v-for="[key, group] in Object.entries(tabGroups)"
+          :key="key"
+          type="button"
+          class="library-tab"
+          :class="{ active: activeTab === key }"
+          :aria-pressed="activeTab === key"
+          :disabled="tabCount(key) === 0"
+          @click="activeTab = key"
+        >
+          {{ group.label }} <span>{{ tabCount(key) }}</span>
+        </button>
+      </nav>
+
+      <div class="filter-bar">
+        <label class="filter-control">
+          <span>核心</span>
+          <select v-model="coreFilter" data-testid="core-filter" aria-label="核心筛选">
+            <option value="all">全部核心</option>
+            <option v-for="core in coreOptions" :key="core" :value="core">{{ core }}</option>
+          </select>
+        </label>
+        <label class="filter-control">
+          <span>版本类型</span>
+          <select v-model="variantFilter" data-testid="variant-filter" aria-label="版本类型筛选">
+            <option value="all">全部类型</option>
+            <option value="official">官方</option>
+            <option value="hack">HACK</option>
+            <option value="bootleg">BOOTLEG</option>
+            <option value="clone">CLONE</option>
+          </select>
+        </label>
+        <button
+          v-if="hasFilters"
+          type="button"
+          class="clear-filters"
+          @click="clearFilters"
+        >
+          清除筛选
+        </button>
+      </div>
+
+      <section v-if="loading" class="game-grid" aria-label="正在载入游戏">
+        <article v-for="index in 12" :key="index" class="game-card game-card-skeleton">
+          <div class="thumbnail-frame skeleton"></div>
+          <div class="skeleton-lines">
+            <span class="skeleton"></span>
+            <span class="skeleton"></span>
+            <span class="skeleton"></span>
+          </div>
+        </article>
+      </section>
+
+      <section v-else-if="!filtered.length" class="gallery-empty" aria-live="polite">
+        <span class="empty-code">NO MATCH</span>
+        <h2>{{ hasFilters ? '没有匹配的游戏' : '游戏库为空' }}</h2>
+        <button v-if="hasFilters" type="button" class="clear-filters" @click="clearFilters">
+          清除筛选
+        </button>
+      </section>
+
+      <section v-else class="game-grid" aria-label="游戏列表">
+        <article
+          v-for="rom in filtered"
+          :key="rom.id"
+          class="game-card"
+          role="link"
+          tabindex="0"
+          :data-rom-id="rom.id"
+          :aria-label="cardAriaLabel(rom)"
+          @click="play(rom)"
+          @keydown="onCardKeydown($event, rom)"
+        >
+          <div class="thumbnail-frame">
+            <img
+              v-if="hasThumbnail(rom)"
+              :src="rom.thumbnailUrl"
+              :alt="thumbnailAlt(rom)"
+              loading="lazy"
+              decoding="async"
+              @error="onThumbnailError(rom.id)"
+            />
+            <div v-else class="thumbnail-fallback" aria-hidden="true">
+              <span>{{ titleInitial(rom.title) }}</span>
+              <small>NO SIGNAL</small>
+            </div>
+
+            <span
+              class="thumbnail-evidence"
+              :class="thumbnailEvidenceClass(rom)"
+            >
+              {{ thumbnailEvidence(rom) }}
+            </span>
+
+            <button
+              v-if="isAuthed"
+              type="button"
+              class="favorite-button"
+              :class="{ active: rom.isFavorite }"
+              :title="rom.isFavorite ? '取消收藏' : '收藏'"
+              :aria-label="rom.isFavorite ? `取消收藏 ${rom.title}` : `收藏 ${rom.title}`"
+              :aria-pressed="Boolean(rom.isFavorite)"
+              @click.stop="toggleFavorite(rom)"
+              @keydown.stop
+            >
+              <svg aria-hidden="true" width="17" height="17" viewBox="0 0 24 24" :fill="rom.isFavorite ? 'currentColor' : 'none'" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
+                <path d="M12 17.3 5.82 21l1.64-7.03L2 9.24l7.19-.61L12 2l2.81 6.63 7.19.61-5.46 4.73L18.18 21z" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="game-card-body">
+            <div class="game-card-heading">
+              <h2 class="game-title">{{ rom.title }}</h2>
+              <div v-if="variantBadges(rom).length" class="variant-badges" aria-label="版本标记">
+                <span
+                  v-for="badge in variantBadges(rom)"
+                  :key="badge.key"
+                  class="variant-badge"
+                  :class="`variant-${badge.key}`"
+                >
+                  {{ badge.label }}
+                </span>
+              </div>
+            </div>
+
+            <dl class="game-metadata">
+              <div>
+                <dt>SET</dt>
+                <dd class="game-set">{{ rom.setName || rom.setNameNormalized || '—' }}</dd>
+              </div>
+              <div>
+                <dt>版本</dt>
+                <dd class="game-version">{{ rom.versionLabel || '原版' }}</dd>
+              </div>
+              <div>
+                <dt>核心</dt>
+                <dd class="game-core">{{ coreDisplay(rom) }}</dd>
+              </div>
+              <div>
+                <dt>硬件</dt>
+                <dd class="game-hardware">{{ hardwareDisplay(rom) }}</dd>
+              </div>
+            </dl>
+          </div>
+        </article>
+      </section>
+    </div>
+  </main>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api/client.js'
 import { useAuth } from '../composables/useAuth.js'
-import { tabGroups, getPlatform } from '../constants/platforms.js'
 import { useSettings } from '../composables/useSettings.js'
-import VersionPickerDialog from '../components/VersionPickerDialog.vue'
+import { getPlatform, tabGroups } from '../constants/platforms.js'
 
 const router = useRouter()
 const { isAuthed } = useAuth()
 const { settings } = useSettings()
-const guestPlayEnabled = computed(() => settings.value?.guestPlayEnabled === true || settings.value?.guestPlayEnabled === '1')
 
 const roms = ref([])
 const loading = ref(true)
 const query = ref('')
 const activeTab = ref('all')
+const coreFilter = ref('all')
+const variantFilter = ref('all')
+const failedThumbnailIds = ref(new Set())
+
+const guestPlayEnabled = computed(() => (
+  settings.value?.guestPlayEnabled === true || settings.value?.guestPlayEnabled === '1'
+))
+const total = computed(() => roms.value.length)
+const favoriteCount = computed(() => roms.value.filter((rom) => rom.isFavorite).length)
+const coreOptions = computed(() => (
+  [...new Set(roms.value.map((rom) => rom.coreName).filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right))
+))
+const hasFilters = computed(() => (
+  Boolean(query.value.trim()) ||
+  activeTab.value !== 'all' ||
+  coreFilter.value !== 'all' ||
+  variantFilter.value !== 'all'
+))
+
+onMounted(load)
 
 async function load() {
   loading.value = true
-  try { roms.value = (await api.romsPublic()).roms }
-  catch { roms.value = [] }
-  finally { loading.value = false }
+  try {
+    const response = await api.romsPublic()
+    roms.value = Array.isArray(response?.roms) ? response.roms : []
+  } catch {
+    roms.value = []
+  } finally {
+    loading.value = false
+  }
 }
-onMounted(load)
-
-const total = computed(() => roms.value.length)
-const favoriteCount = computed(() => roms.value.filter((r) => r.isFavorite).length)
 
 function tabCount(key) {
   const allowed = new Set(tabGroups[key]?.platforms || [])
-  return roms.value.filter((r) => allowed.has(r.platform)).length
+  return roms.value.filter((rom) => allowed.has(rom.platform)).length
+}
+
+function isClone(rom) {
+  return Boolean(rom.parentRomId || rom.datParentSetName || rom.archiveLayout === 'split')
+}
+
+function matchesVariant(rom, value) {
+  if (value === 'all') return true
+  if (value === 'clone') return isClone(rom)
+  return rom.variantKind === value
+}
+
+function searchableText(rom) {
+  const platform = getPlatform(rom.platform)
+  return [
+    rom.title,
+    rom.setName,
+    rom.setNameNormalized,
+    rom.versionLabel,
+    rom.coreName,
+    rom.coreVersion,
+    rom.platform,
+    rom.hardwareFamily,
+    rom.variantKind,
+    rom.datParentSetName,
+    rom.familyRootSetName,
+    rom.thumbnailSourceSetName,
+    platform.displayName,
+    platform.shortLabel,
+    platform.manufacturer,
+    isClone(rom) ? 'clone' : null,
+  ].filter(Boolean).join(' ').toLocaleLowerCase()
 }
 
 const filtered = computed(() => {
   let list = roms.value
   if (activeTab.value === 'favorites') {
-    list = list.filter((r) => r.isFavorite)
+    list = list.filter((rom) => rom.isFavorite)
   } else if (activeTab.value !== 'all') {
     const allowed = new Set(tabGroups[activeTab.value]?.platforms || [])
-    list = list.filter((r) => allowed.has(r.platform))
+    list = list.filter((rom) => allowed.has(rom.platform))
   }
-  const q = query.value.trim().toLowerCase()
-  if (q) list = list.filter((r) => r.title.toLowerCase().includes(q))
+  if (coreFilter.value !== 'all') {
+    list = list.filter((rom) => rom.coreName === coreFilter.value)
+  }
+  list = list.filter((rom) => matchesVariant(rom, variantFilter.value))
+
+  const normalizedQuery = query.value.trim().toLocaleLowerCase()
+  if (normalizedQuery) {
+    list = list.filter((rom) => searchableText(rom).includes(normalizedQuery))
+  }
   return list
 })
 
+function clearFilters() {
+  query.value = ''
+  activeTab.value = 'all'
+  coreFilter.value = 'all'
+  variantFilter.value = 'all'
+}
+
+function variantBadges(rom) {
+  const labels = {
+    official: '官方',
+    hack: 'HACK',
+    bootleg: 'BOOTLEG',
+  }
+  const badges = rom.variantKind && labels[rom.variantKind]
+    ? [{ key: rom.variantKind, label: labels[rom.variantKind] }]
+    : []
+  if (isClone(rom)) badges.push({ key: 'clone', label: 'CLONE' })
+  return badges
+}
+
+function hasThumbnail(rom) {
+  return Boolean(rom.thumbnailUrl && !failedThumbnailIds.value.has(rom.id))
+}
+
+function onThumbnailError(id) {
+  const next = new Set(failedThumbnailIds.value)
+  next.add(id)
+  failedThumbnailIds.value = next
+}
+
+function thumbnailEvidence(rom) {
+  if (!hasThumbnail(rom)) return '暂无截图'
+  if (rom.thumbnailMatchKind === 'exact') return '本作截图'
+  if (rom.thumbnailMatchKind === 'alias') return '别名图'
+  if (rom.thumbnailMatchKind === 'parent' || rom.thumbnailMatchKind === 'source_reference') {
+    return '参考图'
+  }
+  if (rom.thumbnailMatchKind === 'placeholder') return '占位图'
+  return '图片来源未知'
+}
+
+function thumbnailEvidenceClass(rom) {
+  if (!hasThumbnail(rom)) return 'evidence-missing'
+  if (rom.thumbnailMatchKind === 'parent' || rom.thumbnailMatchKind === 'source_reference') {
+    return 'evidence-reference'
+  }
+  return `evidence-${rom.thumbnailMatchKind || 'unknown'}`
+}
+
+function thumbnailAlt(rom) {
+  const setName = rom.setName || rom.setNameNormalized
+  return `${rom.title}${setName ? ` (${setName})` : ''} 游戏截图`
+}
+
+function titleInitial(title) {
+  return String(title || '?').trim().slice(0, 1).toLocaleUpperCase() || '?'
+}
+
+function coreDisplay(rom) {
+  return [rom.coreName, rom.coreVersion].filter(Boolean).join(' · ') || '—'
+}
+
+function hardwareDisplay(rom) {
+  return rom.hardwareFamily || getPlatform(rom.platform).displayName || rom.platform || '—'
+}
+
+function cardAriaLabel(rom) {
+  return `游玩 ${rom.title}，${rom.versionLabel || '原版'}，${rom.setName || rom.setNameNormalized || ''}`
+}
+
 async function toggleFavorite(rom) {
-  const prev = !!rom.isFavorite
-  rom.isFavorite = !prev
+  const previous = Boolean(rom.isFavorite)
+  rom.isFavorite = !previous
   try {
-    if (prev) await api.romUnfavorite(rom.id)
-    else      await api.romFavorite(rom.id)
-  } catch (err) {
-    rom.isFavorite = prev
-    alert(err?.message || '操作失败')
+    if (previous) await api.romUnfavorite(rom.id)
+    else await api.romFavorite(rom.id)
+  } catch (error) {
+    rom.isFavorite = previous
+    window.alert(error?.message || '操作失败')
   }
 }
-
-function platformLabel(p) { return getPlatform(p).shortLabel }
-function platformDisplay(p) { return getPlatform(p).displayName }
-function artBg(p) {
-  const c = getPlatform(p).color
-  return `linear-gradient(135deg, ${c}55 0%, ${c}22 100%)`
-}
-
-const pickerRom = ref(null)
 
 function play(rom) {
   if (!isAuthed.value && !(guestPlayEnabled.value && rom.isPublic)) {
-    router.push(`/auth?redirect=${encodeURIComponent('/play/' + rom.id)}`)
-    return
-  }
-  if (rom.versionCount > 0) {
-    pickerRom.value = rom
+    router.push(`/auth?redirect=${encodeURIComponent(`/play/${rom.id}`)}`)
     return
   }
   router.push(`/play/${rom.id}`)
 }
 
-function onVersionPicked(v) {
-  pickerRom.value = null
-  router.push(`/play/${v.id}`)
+function onCardKeydown(event, rom) {
+  if (event.target !== event.currentTarget) return
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  play(rom)
 }
 </script>
 
 <style scoped>
-.gallery-page { padding-bottom: 60px; }
+.gallery-page {
+  --arcade-black: #05080c;
+  --arcade-panel: #0a1016;
+  --arcade-raised: #101922;
+  --arcade-line: #1c3038;
+  --arcade-line-strong: #31505b;
+  --arcade-text: #f1f8fa;
+  --arcade-muted: #9aafb5;
+  --arcade-dim: #687e85;
+  --arcade-cyan: #21e6ff;
+  --arcade-magenta: #ff3bbd;
+  --arcade-amber: #ffc247;
+  --arcade-green: #4dff88;
+  position: relative;
+  isolation: isolate;
+  min-height: calc(100vh - var(--header-h));
+  min-height: calc(100dvh - var(--header-h));
+  overflow: hidden;
+  color: var(--arcade-text);
+  background: var(--arcade-black);
+}
 
-.search {
+.gallery-page,
+.gallery-page * {
+  letter-spacing: 0;
+}
+
+.gallery-page::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  content: '';
+  pointer-events: none;
+  opacity: 0.42;
+  background-image:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.018) 0,
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px,
+      transparent 4px
+    ),
+    linear-gradient(rgba(33, 230, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(33, 230, 255, 0.03) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+}
+
+.gallery-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 1500px;
+  padding-bottom: 64px;
+}
+
+.gallery-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 0 16px;
+  border-bottom: 1px solid var(--arcade-line);
+}
+
+.gallery-heading { min-width: 0; }
+
+.gallery-kicker {
   display: flex;
   align-items: center;
+  gap: 7px;
+  margin-bottom: 4px;
+  color: var(--arcade-cyan);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.status-led {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border: 1px solid #a8ffc4;
+  border-radius: 50%;
+  background: var(--arcade-green);
+  box-shadow: 0 0 8px rgba(77, 255, 136, 0.65);
+}
+
+.page-title {
+  margin: 0;
+  color: var(--arcade-text);
+  font-size: 28px;
+  font-weight: 760;
+  line-height: 1.15;
+}
+
+.gallery-count {
+  display: flex;
+  align-items: baseline;
   gap: 6px;
-  height: 34px;
-  padding: 0 12px;
-  background: var(--bg-1);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--r-md);
-  color: var(--text-tertiary);
-  min-width: 220px;
+  margin: 5px 0 0;
+  color: var(--arcade-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.gallery-count strong {
+  color: var(--arcade-amber);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.gallery-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: min(380px, 40vw);
+  height: 38px;
+  padding: 0 11px;
+  color: var(--arcade-dim);
+  background: #070c11;
+  border: 1px solid var(--arcade-line-strong);
+  border-radius: 4px;
   transition: border-color var(--t-fast), box-shadow var(--t-fast);
 }
-.search:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-ring);
+
+.search-box:focus-within {
+  color: var(--arcade-cyan);
+  border-color: var(--arcade-cyan);
+  box-shadow: 0 0 0 3px rgba(33, 230, 255, 0.14);
 }
-.search input {
-  flex: 1; height: 100%;
-  background: transparent; border: 0; outline: none;
-  color: var(--text-primary);
+
+.search-box input {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  color: var(--arcade-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
   font-family: inherit;
   font-size: 13px;
-  min-width: 0;
 }
-.search input::placeholder { color: var(--text-quaternary); }
 
-/* ── Tabs ────────────────────────────────────────────── */
-.tabs {
+.search-box input::placeholder { color: var(--arcade-dim); }
+
+.library-action,
+.clear-filters {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  color: #191004;
+  background: var(--arcade-amber);
+  border: 1px solid #ffe09a;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+
+.library-action:hover,
+.clear-filters:hover {
+  color: #191004;
+  background: #ffd371;
+  box-shadow: 0 0 18px rgba(255, 194, 71, 0.18);
+}
+
+.library-action:focus-visible,
+.clear-filters:focus-visible {
+  outline: 2px solid var(--arcade-cyan);
+  outline-offset: 3px;
+}
+
+.library-tabs {
   display: flex;
-  gap: 0;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 20px;
+  align-items: stretch;
+  min-width: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 0 2px;
-}
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 36px;
-  padding: 0 12px;
-  border: 0;
-  background: transparent;
-  color: var(--text-secondary);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  transition: color var(--t-fast), border-color var(--t-fast);
-  white-space: nowrap;
-}
-.tab:hover:not(:disabled) { color: var(--text-primary); }
-.tab.active {
-  color: var(--text-primary);
-  font-weight: 600;
-  border-bottom-color: var(--accent);
-}
-.tab:disabled { opacity: 0.4; cursor: not-allowed; }
-.tab .n {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 7px;
-  min-width: 20px;
-  text-align: center;
-  border-radius: var(--r-pill);
-  background: var(--bg-3);
-  color: var(--text-tertiary);
-  font-variant-numeric: tabular-nums;
-  transition: background var(--t-fast), color var(--t-fast);
-}
-.tab.active .n { background: var(--accent-soft); color: var(--accent); }
-.tab-fav svg { color: var(--sys-yellow); }
-
-/* ── Grid ────────────────────────────────────────────── */
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 16px;
+  border-bottom: 1px solid var(--arcade-line);
+  scrollbar-width: none;
 }
 
-.tile-skel {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--bg-1);
-}
-.skel-art { width: 56px; height: 56px; flex-shrink: 0; border-radius: var(--r-sm); }
-.skel-text { flex: 1; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.library-tabs::-webkit-scrollbar { display: none; }
 
-.tile {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 12px;
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  cursor: pointer;
-  outline: none;
-  transition: transform var(--t-fast) var(--ease-out),
-              border-color var(--t-fast) var(--ease-out),
-              box-shadow var(--t-fast) var(--ease-out);
-}
-.tile:hover {
-  border-color: var(--border-strong);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-.tile:focus-visible {
-  border-color: var(--accent);
-  box-shadow: var(--shadow-focus);
-}
-
-.tile-art {
+.library-tab {
   position: relative;
-  width: 56px;
-  height: 56px;
-  flex-shrink: 0;
-  border-radius: var(--r-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.95);
-  text-transform: uppercase;
-  letter-spacing: -0.02em;
-  overflow: hidden;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
-}
-.art-letter { line-height: 1; position: relative; z-index: 1; }
-
-.fav-btn {
-  position: absolute;
-  top: 3px; right: 3px;
-  width: 22px; height: 22px;
-  padding: 0;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  border-radius: 50%;
+  gap: 7px;
+  height: 42px;
+  padding: 0 13px;
+  color: var(--arcade-muted);
+  background: transparent;
   border: 0;
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(6px);
-  color: rgba(255, 255, 255, 0.9);
-  cursor: pointer;
-  opacity: 0;
-  z-index: 2;
-  transition: opacity var(--t-fast), background var(--t-fast), transform var(--t-fast) var(--ease-spring);
-}
-.tile:hover .fav-btn,
-.tile:focus-within .fav-btn,
-.fav-btn.on { opacity: 1; }
-.fav-btn.on { color: var(--sys-yellow); background: rgba(0, 0, 0, 0.55); }
-.fav-btn:hover { background: rgba(0, 0, 0, 0.65); transform: scale(1.08); }
-.fav-btn:active { transform: scale(0.92); }
-
-.ver-badge {
-  position: absolute;
-  bottom: 3px; right: 3px;
-  padding: 2px 7px;
-  border-radius: var(--r-pill);
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  z-index: 2;
-}
-
-.tile-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-.tile-top {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  justify-content: space-between;
-}
-.tile-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border-bottom: 2px solid transparent;
+  font-family: inherit;
+  font-size: 12px;
   white-space: nowrap;
-  flex: 1;
-  letter-spacing: -0.01em;
-  transition: color var(--t-fast);
+  cursor: pointer;
 }
-.tile:hover .tile-title { color: var(--accent); }
-.tile-plat {
-  flex-shrink: 0;
+
+.library-tab:hover:not(:disabled) { color: var(--arcade-text); }
+.library-tab:disabled { color: #465860; cursor: not-allowed; }
+.library-tab.active {
+  color: var(--arcade-cyan);
+  border-bottom-color: var(--arcade-cyan);
+  text-shadow: 0 0 12px rgba(33, 230, 255, 0.28);
+}
+.library-tab:focus-visible {
+  outline: 2px solid var(--arcade-cyan);
+  outline-offset: -3px;
+}
+.library-tab span {
+  min-width: 20px;
+  padding: 1px 5px;
+  color: var(--arcade-dim);
+  background: var(--arcade-raised);
+  border: 1px solid var(--arcade-line);
+  border-radius: 3px;
+  font-family: var(--font-mono);
   font-size: 10px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: var(--r-pill);
-  background: var(--bg-3);
-  color: var(--text-secondary);
-  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.favorite-tab svg { color: var(--arcade-amber); }
+
+.filter-bar {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 12px 0 16px;
+}
+
+.filter-control {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  color: var(--arcade-dim);
+  font-family: var(--font-mono);
+  font-size: 9px;
   text-transform: uppercase;
 }
-.tile-sub {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  display: flex;
-  gap: 8px;
+
+.filter-control select {
+  width: 100%;
+  height: 34px;
+  padding: 0 28px 0 9px;
   overflow: hidden;
-  white-space: nowrap;
+  color: var(--arcade-text);
+  background: #080d12;
+  border: 1px solid var(--arcade-line);
+  border-radius: 4px;
+  outline: 0;
+  font-family: inherit;
+  font-size: 12px;
   text-overflow: ellipsis;
 }
-.tile-sub .owner { color: var(--text-secondary); }
 
-@media (max-width: 768px) {
-  .page-head { flex-direction: column; align-items: stretch; }
-  .page-head-actions { flex-direction: row; gap: 8px; }
-  .search { flex: 1; min-width: 0; }
+.filter-control select:focus-visible {
+  border-color: var(--arcade-cyan);
+  box-shadow: 0 0 0 3px rgba(33, 230, 255, 0.14);
 }
-@media (max-width: 480px) {
-  .grid { grid-template-columns: 1fr; }
+
+.clear-filters {
+  min-height: 34px;
+  color: var(--arcade-muted);
+  background: transparent;
+  border-color: var(--arcade-line-strong);
+  font-weight: 650;
+}
+
+.clear-filters:hover {
+  color: var(--arcade-text);
+  background: var(--arcade-raised);
+  box-shadow: none;
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));
+  gap: 14px;
+  align-items: stretch;
+}
+
+.game-card {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--arcade-text);
+  background: var(--arcade-panel);
+  border: 1px solid var(--arcade-line);
+  border-radius: 6px;
+  outline: 0;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  contain: layout paint style;
+  content-visibility: auto;
+  contain-intrinsic-size: 0 330px;
+  transition: transform var(--t-fast) var(--ease-out), border-color var(--t-fast), box-shadow var(--t-fast);
+}
+
+.game-card::after {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  content: '';
+  pointer-events: none;
+  background: var(--arcade-cyan);
+  opacity: 0.62;
+}
+.game-card:nth-child(3n)::after { background: var(--arcade-magenta); }
+.game-card:nth-child(5n)::after { background: var(--arcade-amber); }
+
+.game-card:hover {
+  z-index: 1;
+  border-color: var(--arcade-line-strong);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.32), 0 0 20px rgba(33, 230, 255, 0.06);
+  transform: translateY(-2px);
+}
+
+.game-card:focus-visible {
+  z-index: 2;
+  border-color: var(--arcade-cyan);
+  outline: 2px solid var(--arcade-cyan);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 1px #05080c, 0 0 24px rgba(33, 230, 255, 0.22);
+}
+
+.thumbnail-frame {
+  position: relative;
+  display: grid;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  place-items: center;
+  background: #020406;
+  border-bottom: 1px solid var(--arcade-line);
+}
+
+.thumbnail-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #020406;
+}
+
+.thumbnail-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 7px;
+  color: var(--arcade-cyan);
+  background-color: #070c11;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 5px,
+    rgba(33, 230, 255, 0.055) 5px,
+    rgba(33, 230, 255, 0.055) 6px
+  );
+  text-align: center;
+}
+.thumbnail-fallback span {
+  font-family: var(--font-mono);
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  text-shadow: 0 0 14px rgba(33, 230, 255, 0.32);
+}
+.thumbnail-fallback small {
+  color: var(--arcade-dim);
+  font-family: var(--font-mono);
+  font-size: 8px;
+}
+
+.thumbnail-evidence {
+  position: absolute;
+  z-index: 2;
+  bottom: 7px;
+  left: 7px;
+  max-width: calc(100% - 50px);
+  padding: 3px 6px;
+  overflow: hidden;
+  color: var(--arcade-green);
+  background: rgba(2, 4, 6, 0.9);
+  border: 1px solid rgba(77, 255, 136, 0.5);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.evidence-alias { color: var(--arcade-cyan); border-color: rgba(33, 230, 255, 0.52); }
+.evidence-reference { color: var(--arcade-amber); border-color: rgba(255, 194, 71, 0.58); }
+.evidence-placeholder,
+.evidence-missing,
+.evidence-unknown { color: var(--arcade-muted); border-color: rgba(154, 175, 181, 0.4); }
+
+.favorite-button {
+  position: absolute;
+  z-index: 3;
+  top: 8px;
+  right: 8px;
+  display: inline-grid;
+  width: 31px;
+  height: 31px;
+  padding: 0;
+  color: #d4e1e4;
+  background: rgba(2, 4, 6, 0.88);
+  border: 1px solid var(--arcade-line-strong);
+  border-radius: 4px;
+  place-items: center;
+  cursor: pointer;
+  transition: color var(--t-fast), border-color var(--t-fast), background var(--t-fast);
+}
+.favorite-button:hover,
+.favorite-button:focus-visible {
+  color: var(--arcade-amber);
+  background: #10171d;
+  border-color: var(--arcade-amber);
+  outline: 0;
+}
+.favorite-button:focus-visible { box-shadow: 0 0 0 3px rgba(255, 194, 71, 0.2); }
+.favorite-button.active { color: var(--arcade-amber); border-color: rgba(255, 194, 71, 0.7); }
+
+.game-card-body {
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  padding: 11px 12px 12px;
+}
+
+.game-card-heading {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.game-title {
+  display: -webkit-box;
+  min-height: 38px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--arcade-text);
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.variant-badges {
+  display: flex;
+  min-height: 19px;
+  gap: 5px;
+  overflow: hidden;
+}
+
+.variant-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 19px;
+  padding: 0 6px;
+  color: var(--arcade-green);
+  background: rgba(77, 255, 136, 0.07);
+  border: 1px solid rgba(77, 255, 136, 0.3);
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.variant-hack { color: var(--arcade-magenta); background: rgba(255, 59, 189, 0.07); border-color: rgba(255, 59, 189, 0.38); }
+.variant-bootleg { color: var(--arcade-amber); background: rgba(255, 194, 71, 0.07); border-color: rgba(255, 194, 71, 0.38); }
+.variant-clone { color: var(--arcade-cyan); background: rgba(33, 230, 255, 0.07); border-color: rgba(33, 230, 255, 0.35); }
+
+.game-metadata {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px 10px;
+  min-width: 0;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--arcade-line);
+}
+.game-metadata div { min-width: 0; }
+.game-metadata dt {
+  margin: 0 0 2px;
+  color: var(--arcade-dim);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.game-metadata dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--arcade-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.game-set { color: var(--arcade-cyan) !important; }
+
+.game-card-skeleton { cursor: default; }
+.game-card-skeleton::after { display: none; }
+.game-card-skeleton .thumbnail-frame { border-radius: 0; }
+.skeleton-lines {
+  display: grid;
+  gap: 8px;
+  padding: 13px 12px 16px;
+}
+.skeleton-lines span { display: block; height: 10px; }
+.skeleton-lines span:nth-child(1) { width: 78%; }
+.skeleton-lines span:nth-child(2) { width: 52%; }
+.skeleton-lines span:nth-child(3) { width: 66%; }
+
+.gallery-empty {
+  display: grid;
+  min-height: 260px;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  border-top: 1px solid var(--arcade-line);
+  border-bottom: 1px solid var(--arcade-line);
+  text-align: center;
+}
+.gallery-empty h2 { margin: 0; font-size: 16px; }
+.empty-code { color: var(--arcade-magenta); font-family: var(--font-mono); font-size: 10px; font-weight: 800; }
+
+@media (max-width: 900px) {
+  .gallery-head { align-items: stretch; flex-direction: column; gap: 14px; }
+  .gallery-head-actions { justify-content: stretch; }
+  .search-box { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  .gallery-inner { padding: 0 12px 48px; }
+  .gallery-head { padding-top: 18px; }
+  .page-title { font-size: 24px; }
+  .gallery-head-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .search-box { grid-column: 1 / -1; max-width: none; }
+  .library-tab { height: 40px; padding: 0 11px; }
+  .filter-bar { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+  .filter-control { min-width: 0; }
+  .clear-filters { grid-column: 1 / -1; width: max-content; }
+  .game-grid { grid-template-columns: 1fr; gap: 12px; }
+  .game-card { contain-intrinsic-size: 0 420px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-card,
+  .library-action,
+  .clear-filters { transition: none; }
+  .game-card:hover { transform: none; }
 }
 </style>

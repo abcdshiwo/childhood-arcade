@@ -310,8 +310,14 @@ export async function serializeRomRows(romRows, {
   return romRows.map((rom) => {
     const build = builds.get(rom.activeBuildId) ?? null
     const primaryArchive = build?.archives.find((archive) => archive.role === 'primary') ?? null
-    const thumbnailRef = refById.get(rom.activeThumbnailRefId) ?? null
-    const thumbnailAsset = thumbnailRef ? assetById.get(thumbnailRef.assetId) : null
+    const candidateThumbnailRef = refById.get(rom.activeThumbnailRefId) ?? null
+    const candidateThumbnailAsset = candidateThumbnailRef
+      ? assetById.get(candidateThumbnailRef.assetId)
+      : null
+    const thumbnailAsset = candidateThumbnailAsset?.kind === 'thumbnail'
+      ? candidateThumbnailAsset
+      : null
+    const thumbnailRef = thumbnailAsset ? candidateThumbnailRef : null
     return {
       id: rom.id,
       title: rom.title,
@@ -928,13 +934,16 @@ romRoutes.get('/:id/thumbnail', async (c) => {
   const asset = ref
     ? (await db.select().from(assets).where(eq(assets.id, ref.assetId)).limit(1))[0]
     : null
-  if (!asset || asset.sha256 !== version) return c.json({ error: 'not found' }, 404)
+  if (!asset || asset.kind !== 'thumbnail' || asset.sha256 !== version) {
+    return c.json({ error: 'not found' }, 404)
+  }
   const build = rom.activeBuildId ? await exactBuild(rom.activeBuildId) : null
+  const publiclyReadable = Boolean(build && publicBuild(build, rom))
   const user = await currentUser(c)
   if (
     user?.role !== 'admin' &&
     user?.id !== rom.userId &&
-    !(build && publicBuild(build, rom))
+    !publiclyReadable
   ) {
     return c.json({ error: user ? 'forbidden' : 'unauthorized' }, user ? 403 : 401)
   }
@@ -949,7 +958,10 @@ romRoutes.get('/:id/thumbnail', async (c) => {
   c.header('Content-Type', asset.mimeType || 'image/webp')
   c.header('Content-Length', String(metadata.size))
   c.header('ETag', `"${asset.sha256}"`)
-  c.header('Cache-Control', 'public, max-age=31536000, immutable')
+  c.header(
+    'Cache-Control',
+    `${publiclyReadable ? 'public' : 'private'}, max-age=31536000, immutable`,
+  )
   return stream(c, async (target) => {
     const source = createReadStream(fullPath)
     await target.pipe(new ReadableStream({
