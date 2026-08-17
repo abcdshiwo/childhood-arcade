@@ -16,6 +16,7 @@ import { contractLibraryDatabase } from '../server/db/contract-runner.js'
 import { countAssetReferences } from '../server/services/library-service.js'
 
 const sha256 = (value) => createHash('sha256').update(value).digest('hex')
+const BULK_THUMBNAIL_COUNT = 620
 const fixtureDirectory = mkdtempSync(join(tmpdir(), 'thumbnail-api-'))
 const databasePath = join(fixtureDirectory, 'app.db')
 const assetRoot = join(fixtureDirectory, 'library-assets')
@@ -121,13 +122,15 @@ function insertThumbnailRef(sqlite, {
   asset,
   matchKind,
   sourceSetName,
+  importBatchId = null,
   active = true,
 }) {
   sqlite.prepare(`
     INSERT INTO rom_asset_refs
-      (id, rom_id, asset_id, match_kind, source_set_name, source_file_sha256)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, romId, asset.id, matchKind, sourceSetName, asset.hash)
+      (id, rom_id, asset_id, match_kind, source_set_name, source_file_sha256,
+       import_batch_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, romId, asset.id, matchKind, sourceSetName, asset.hash, importBatchId)
   if (active) {
     sqlite.prepare('UPDATE roms SET active_thumbnail_ref_id = ? WHERE id = ?').run(id, romId)
   }
@@ -149,10 +152,23 @@ async function createFixture() {
   contracted.pragma('foreign_keys = ON')
   contracted.exec(`
     INSERT INTO users (id, username, password_hash, role, status)
-    VALUES (1, 'owner', 'hash', 'user', 1);
+    VALUES
+      (1, 'owner', 'hash', 'user', 1),
+      (2, 'admin', 'hash', 'admin', 1),
+      (3, 'other', 'hash', 'user', 1);
 
     INSERT INTO sessions (user_id, token, expires_at)
-    VALUES (1, 'owner-token', unixepoch() + 3600);
+    VALUES
+      (1, 'owner-token', unixepoch() + 3600),
+      (2, 'admin-token', unixepoch() + 3600),
+      (3, 'other-token', unixepoch() + 3600);
+
+    INSERT INTO import_batches
+      (id, owner_user_id, cold_source_sha256, manifest_sha256,
+       planned_count, actual_count, total_bytes, status)
+    VALUES
+      ('catalog-batch', 1, '${'b'.repeat(64)}', '${'c'.repeat(64)}',
+       4, 4, 1, 'committed_private');
   `)
 
   const coreJs = addAsset(contracted, {
@@ -239,6 +255,17 @@ async function createFixture() {
   ]) {
     insertRom(contracted, row)
   }
+  insertRom(contracted, {
+    id: 108,
+    title: 'Revocable Public Thumbnail',
+    setName: 'revocable_public',
+  })
+  insertReadyBuild(contracted, {
+    id: 1108,
+    romId: 108,
+    archive,
+    coreFingerprint,
+  })
 
   insertThumbnailRef(contracted, {
     id: 2000,
@@ -255,6 +282,7 @@ async function createFixture() {
       asset: sharedThumbnail,
       matchKind: row.matchKind,
       sourceSetName: row.source,
+      importBatchId: 'catalog-batch',
     })
   }
   insertThumbnailRef(contracted, {
@@ -270,6 +298,13 @@ async function createFixture() {
     asset: sharedThumbnail,
     matchKind: 'source_reference',
     sourceSetName: 'shared_reference',
+  })
+  insertThumbnailRef(contracted, {
+    id: 2008,
+    romId: 108,
+    asset: retiredThumbnail,
+    matchKind: 'exact',
+    sourceSetName: 'revocable_public',
   })
   insertThumbnailRef(contracted, {
     id: 2007,
@@ -288,6 +323,59 @@ async function request(path, { method = 'GET', token } = {}) {
     method,
     headers: token ? { cookie: `session=${token}` } : undefined,
   })
+}
+
+async function capturePreparedStatements(callback) {
+  const sqlite = db.$client
+  const originalPrepare = sqlite.prepare
+  const statements = []
+  sqlite.prepare = function prepare(source, ...parameters) {
+    statements.push(String(source))
+    return originalPrepare.call(this, source, ...parameters)
+  }
+  try {
+    await callback()
+  } finally {
+    sqlite.prepare = originalPrepare
+  }
+  return statements
+}
+
+function insertBulkThumbnailRows() {
+  const sqlite = db.$client
+  const bulkThumbnail = addAsset(sqlite, {
+    id: 7,
+    kind: 'thumbnail',
+    bytes: 'bulk-webp-thumbnail',
+    mimeType: 'image/webp',
+  })
+  const insertAll = sqlite.transaction(() => {
+    for (let index = 0; index < BULK_THUMBNAIL_COUNT; index += 1) {
+      const romId = 10_000 + index
+      insertRom(sqlite, {
+        id: romId,
+        title: `Bulk ${index + 1}`,
+        setName: `bulk_${index + 1}`,
+      })
+      insertReadyBuild(sqlite, {
+        id: 20_000 + index,
+        romId,
+        archive: fixture.archive,
+        coreFingerprint: sha256('thumbnail-test-core'),
+      })
+      insertThumbnailRef(sqlite, {
+        id: 30_000 + index,
+        romId,
+        asset: bulkThumbnail,
+        matchKind: 'exact',
+        sourceSetName: `bulk_${index + 1}`,
+      })
+    }
+  })
+  insertAll()
+  return Array.from({ length: BULK_THUMBNAIL_COUNT }, (_, index) => (
+    `/api/roms/${10_000 + index}/thumbnail?v=${bulkThumbnail.hash}`
+  ))
 }
 
 test('public rows expose full-SHA active thumbnail URLs and preserve match evidence', async () => {
@@ -312,7 +400,7 @@ test('public rows expose full-SHA active thumbnail URLs and preserve match evide
   }
 })
 
-test('thumbnail endpoint serves only the active content hash with immutable caching', async () => {
+test('thumbnail endpoint uses immutable caching only for imported catalog assets', async () => {
   const activeUrl = `/api/roms/101/thumbnail?v=${fixture.sharedThumbnail.hash}`
   const active = await request(activeUrl)
   assert.equal(active.status, 200)
@@ -327,17 +415,57 @@ test('thumbnail endpoint serves only the active content hash with immutable cach
   assert.equal(mismatch.status, 404)
   const truncated = await request(`/api/roms/101/thumbnail?v=${fixture.sharedThumbnail.hash.slice(0, 32)}`)
   assert.equal(truncated.status, 404)
+
+  const revocableUrl = `/api/roms/108/thumbnail?v=${fixture.retiredThumbnail.hash}`
+  const revocable = await request(revocableUrl)
+  assert.equal(revocable.status, 200)
+  assert.equal(revocable.headers.get('cache-control'), 'public, max-age=0, must-revalidate')
+  await revocable.arrayBuffer()
+
+  db.$client.prepare('UPDATE roms SET is_public = 0 WHERE id = 108').run()
+  const revoked = await request(revocableUrl)
+  assert.equal(revoked.status, 401)
 })
 
-test('private active thumbnails use private immutable caching and retain authorization', async () => {
+test('private active thumbnails are never cached and retain read-only authorization', async () => {
   const url = `/api/roms/106/thumbnail?v=${fixture.sharedThumbnail.hash}`
-  const owner = await request(url, { token: 'owner-token' })
-  assert.equal(owner.status, 200)
-  assert.equal(owner.headers.get('cache-control'), 'private, max-age=31536000, immutable')
-  await owner.arrayBuffer()
+  db.$client.prepare(`
+    UPDATE sessions SET last_activity_at = 1
+    WHERE token IN ('owner-token', 'admin-token', 'other-token')
+  `).run()
 
-  const guest = await request(url)
-  assert.equal(guest.status, 401)
+  const statements = await capturePreparedStatements(async () => {
+    const owner = await request(url, { token: 'owner-token' })
+    assert.equal(owner.status, 200)
+    assert.equal(owner.headers.get('cache-control'), 'private, no-store')
+    await owner.arrayBuffer()
+
+    const admin = await request(url, { token: 'admin-token' })
+    assert.equal(admin.status, 200)
+    assert.equal(admin.headers.get('cache-control'), 'private, no-store')
+    await admin.arrayBuffer()
+
+    const guest = await request(url)
+    assert.equal(guest.status, 401)
+
+    const other = await request(url, { token: 'other-token' })
+    assert.equal(other.status, 403)
+  })
+  assert.equal(
+    statements.filter((statement) => /^\s*(?:insert|update|delete)\b/i.test(statement)).length,
+    0,
+  )
+
+  const activityRows = db.$client.prepare(`
+    SELECT token, last_activity_at AS lastActivityAt
+    FROM sessions
+    ORDER BY token
+  `).all()
+  assert.deepEqual(activityRows, [
+    { token: 'admin-token', lastActivityAt: 1 },
+    { token: 'other-token', lastActivityAt: 1 },
+    { token: 'owner-token', lastActivityAt: 1 },
+  ])
 })
 
 test('non-thumbnail assets are never serialized or served through the thumbnail route', async () => {
@@ -369,4 +497,28 @@ test('shared thumbnail assets retain accurate refcounts when one ROM is deleted'
   const remaining = await request(`/api/roms/104/thumbnail?v=${fixture.sharedThumbnail.hash}`)
   assert.equal(remaining.status, 200)
   await remaining.arrayBuffer()
+})
+
+test('620 public thumbnail reads use one query each and never resolve or write sessions', async () => {
+  const urls = insertBulkThumbnailRows()
+  db.$client.prepare("UPDATE sessions SET last_activity_at = 1 WHERE token = 'owner-token'").run()
+
+  const statements = await capturePreparedStatements(async () => {
+    for (const url of urls) {
+      const response = await request(url, { token: 'owner-token' })
+      assert.equal(response.status, 200)
+      await response.arrayBuffer()
+    }
+  })
+  const reads = statements.filter((statement) => /^\s*select\b/i.test(statement))
+  const writes = statements.filter((statement) => /^\s*(?:insert|update|delete)\b/i.test(statement))
+
+  assert.equal(reads.length, BULK_THUMBNAIL_COUNT)
+  assert.equal(writes.length, 0)
+  assert.ok(statements.every((statement) => !/\bsessions\b/i.test(statement)))
+  assert.equal(
+    db.$client.prepare("SELECT last_activity_at FROM sessions WHERE token = 'owner-token'").get()
+      .last_activity_at,
+    1,
+  )
 })

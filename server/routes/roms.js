@@ -24,7 +24,7 @@ import {
   users,
   STATUS,
 } from '../db/schema.js'
-import { currentUser, requireAuth } from '../middleware/auth.js'
+import { currentUser, currentUserPrincipal, requireAuth } from '../middleware/auth.js'
 import {
   computeBuildFingerprint,
   computeCompatibilityStatus,
@@ -945,26 +945,49 @@ romRoutes.get('/:id/thumbnail', async (c) => {
   const id = Number(c.req.param('id'))
   const version = String(c.req.query('v') || '').toLowerCase()
   if (!SHA256_PATTERN.test(version)) return c.json({ error: 'not found' }, 404)
-  const rom = (await db.select().from(roms).where(eq(roms.id, id)).limit(1))[0]
-  if (!rom?.activeThumbnailRefId) return c.json({ error: 'not found' }, 404)
-  const ref = (await db.select().from(romAssetRefs)
-    .where(and(eq(romAssetRefs.id, rom.activeThumbnailRefId), eq(romAssetRefs.romId, id)))
+  const resource = (await db.select({
+    ownerId: roms.userId,
+    romStatus: roms.status,
+    isPublic: roms.isPublic,
+    thumbnailImportBatchId: romAssetRefs.importBatchId,
+    asset: assets,
+    buildStaticStatus: romBuilds.staticStatus,
+    acceptedResult: buildValidationRuns.result,
+  })
+    .from(roms)
+    .innerJoin(romAssetRefs, and(
+      eq(romAssetRefs.id, roms.activeThumbnailRefId),
+      eq(romAssetRefs.romId, roms.id),
+    ))
+    .innerJoin(assets, eq(assets.id, romAssetRefs.assetId))
+    .leftJoin(romBuilds, and(
+      eq(romBuilds.id, roms.activeBuildId),
+      eq(romBuilds.romId, roms.id),
+    ))
+    .leftJoin(buildValidationRuns, and(
+      eq(buildValidationRuns.romBuildId, romBuilds.id),
+      eq(buildValidationRuns.acceptance, 'accepted'),
+    ))
+    .where(eq(roms.id, id))
     .limit(1))[0]
-  const asset = ref
-    ? (await db.select().from(assets).where(eq(assets.id, ref.assetId)).limit(1))[0]
-    : null
+  const asset = resource?.asset
   if (!asset || asset.kind !== 'thumbnail' || asset.sha256 !== version) {
     return c.json({ error: 'not found' }, 404)
   }
-  const build = rom.activeBuildId ? await exactBuild(rom.activeBuildId) : null
-  const publiclyReadable = Boolean(build && publicBuild(build, rom))
-  const user = await currentUser(c)
-  if (
-    user?.role !== 'admin' &&
-    user?.id !== rom.userId &&
-    !publiclyReadable
-  ) {
-    return c.json({ error: user ? 'forbidden' : 'unauthorized' }, user ? 403 : 401)
+  const publiclyReadable = Boolean(
+    resource.romStatus === STATUS.normal &&
+    resource.isPublic &&
+    resource.buildStaticStatus &&
+    computeCompatibilityStatus({
+      staticStatus: resource.buildStaticStatus,
+      acceptedResult: resource.acceptedResult,
+    }) === 'ready',
+  )
+  if (!publiclyReadable) {
+    const user = await currentUserPrincipal(c)
+    if (user?.role !== 'admin' && user?.id !== resource.ownerId) {
+      return c.json({ error: user ? 'forbidden' : 'unauthorized' }, user ? 403 : 401)
+    }
   }
   let fullPath
   let metadata
@@ -977,9 +1000,16 @@ romRoutes.get('/:id/thumbnail', async (c) => {
   c.header('Content-Type', asset.mimeType || 'image/webp')
   c.header('Content-Length', String(metadata.size))
   c.header('ETag', `"${asset.sha256}"`)
+  const immutableCatalogAsset = Boolean(
+    publiclyReadable && resource.thumbnailImportBatchId,
+  )
   c.header(
     'Cache-Control',
-    `${publiclyReadable ? 'public' : 'private'}, max-age=31536000, immutable`,
+    immutableCatalogAsset
+      ? 'public, max-age=31536000, immutable'
+      : publiclyReadable
+        ? 'public, max-age=0, must-revalidate'
+        : 'private, no-store',
   )
   return stream(c, async (target) => {
     const source = createReadStream(fullPath)

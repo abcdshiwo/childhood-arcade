@@ -51,6 +51,24 @@ export async function currentUser(c) {
   return row.u
 }
 
+export async function currentUserPrincipal(c) {
+  const token = readCookie(c)
+  if (!token) return null
+  const rows = await db.select({
+    id: users.id,
+    role: users.role,
+  })
+    .from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .where(and(
+      eq(sessions.token, token),
+      gt(sessions.expiresAt, new Date()),
+      eq(users.status, STATUS.normal),
+    ))
+    .limit(1)
+  return rows[0] ?? null
+}
+
 export async function requireAuth(c, next) {
   const user = await currentUser(c)
   if (!user) return c.json({ error: 'unauthorized' }, 401)
