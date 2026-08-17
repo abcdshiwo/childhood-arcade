@@ -1,11 +1,12 @@
 <template>
-  <div class="player-page">
+  <div ref="playerRef" class="player-page">
     <GameOverlay
-      v-if="rom || fatalError || isGuestMode"
       :title="displayName"
       :platform="platformInfo"
       :core-name="coreDisplayName[platformInfo.core] || platformInfo.core"
       :can-save="isAuthed && !isGuestMode"
+      :can-use-arcade-controls="isArcade"
+      :arcade-controls-enabled="arcadeControlsEnabled"
       :can-toggle-crt="isArcade"
       :crt-enabled="crtEnabled"
       @back="goBack"
@@ -13,6 +14,8 @@
       @keys="showInput = true"
       @save-state="onSaveState"
       @load-state="onLoadState"
+      @coin="pressArcadeControl('select')"
+      @start="pressArcadeControl('start')"
       @toggle-crt="toggleCrt"
     >
       <template #extras>
@@ -48,7 +51,7 @@
              the waiting-guest view instead — starting the emulator for a
              future guest wastes cores + triggers an unmount race. -->
         <EmulatorPortal
-          v-if="rom && biosReady && !authLoading && (!isRoomMode || isHostMode)"
+          v-if="emulatorReady"
           ref="portalRef"
           class="crt-display"
           :class="{ 'crt-enabled': crtEnabled }"
@@ -182,9 +185,11 @@ const router = useRouter()
 const route = useRoute()
 const { retroarchConfig: inputCfg, mapping } = useInputMapping()
 const { isAuthed, loading: authLoading } = useAuth()
+const player1KeyMap = shallowRef({ ...mapping.value.keyboard })
 const player2KeyMap = shallowRef(buildPlayer2KeyMap(mapping.value.keyboard))
 
 // -- State --
+const playerRef = ref(null)
 const portalRef = ref(null)
 const remoteVideoRef = ref(null)
 const showRotateHint = ref(false)
@@ -198,10 +203,14 @@ const remoteStreamPlaying = ref(false)
 const isMuted = ref(true)
 const connectionStatus = ref('建立连接…')
 const booted = ref(false)
+const controlsChannelOpen = ref(false)
 const loadingSlow = ref(false)
 const CRT_STORAGE_KEY = 'player:crt:arcade'
 const crtEnabled = ref(false)
 let slowTimer = null
+const CONTROL_PULSE_MS = 150
+const activeControlPulses = new Map()
+const guestControlLocks = new Map()
 
 // Room mode
 const roomCode = (route.query.room || '').toString().toUpperCase() || null
@@ -216,6 +225,17 @@ const isHostMode = computed(() => isRoomMode && !!signalMe.value?.isHost)
 const isGuestMode = computed(() => isRoomMode && signalMe.value && !signalMe.value.isHost)
 const canGuestPlay = computed(() => roomInfo.value?.allowPlay !== false)
 const isArcade = computed(() => romMeta.value?.platform === 'arcade')
+const arcadeControlsEnabled = computed(() => {
+  if (!isArcade.value) return false
+  if (isGuestMode.value) return canGuestPlay.value && controlsChannelOpen.value
+  return booted.value
+})
+
+watch(canGuestPlay, (allowed) => {
+  if (allowed) return
+  clearGuestControlLocks()
+  releaseMappedPulses('p2')
+})
 
 watch(isArcade, (arcade) => {
   if (!arcade) {
@@ -241,6 +261,65 @@ function toggleCrt() {
   } catch {}
 }
 
+function dispatchMappedKey(action, mappedKey) {
+  if (!mappedKey) return
+  const type = action === 'down' ? 'keydown' : 'keyup'
+  for (const target of [window, document]) {
+    try {
+      target.dispatchEvent(new KeyboardEvent(type, keyboardEventInit(mappedKey)))
+    } catch {}
+  }
+}
+
+function releaseMappedPulse(pulseId) {
+  const pulse = activeControlPulses.get(pulseId)
+  if (!pulse) return
+  activeControlPulses.delete(pulseId)
+  if (pulse.timer) clearTimeout(pulse.timer)
+  dispatchMappedKey('up', pulse.mappedKey)
+}
+
+function startMappedPulse(player, keyMap, button) {
+  const pulseId = `${player}:${button}`
+  if (activeControlPulses.has(pulseId)) return false
+  const mappedKey = keyMap?.[button]
+  if (!mappedKey) return false
+
+  const pulse = { mappedKey, timer: null }
+  activeControlPulses.set(pulseId, pulse)
+  pulse.timer = setTimeout(() => releaseMappedPulse(pulseId), CONTROL_PULSE_MS)
+  dispatchMappedKey('down', mappedKey)
+  return true
+}
+
+function releaseMappedPulses(player = null) {
+  for (const pulseId of [...activeControlPulses.keys()]) {
+    if (!player || pulseId.startsWith(`${player}:`)) releaseMappedPulse(pulseId)
+  }
+}
+
+function clearGuestControlLocks() {
+  for (const timer of guestControlLocks.values()) clearTimeout(timer)
+  guestControlLocks.clear()
+}
+
+function lockGuestControl(button) {
+  if (guestControlLocks.has(button)) return false
+  const timer = setTimeout(() => guestControlLocks.delete(button), CONTROL_PULSE_MS)
+  guestControlLocks.set(button, timer)
+  return true
+}
+
+function pressArcadeControl(button) {
+  if (!arcadeControlsEnabled.value) return
+  if (isGuestMode.value) {
+    if (!lockGuestControl(button)) return
+    rtc?.sendControlPulse(button)
+    return
+  }
+  startMappedPulse('p1', player1KeyMap.value, button)
+}
+
 // WebRTC
 let rtc = null
 
@@ -251,6 +330,27 @@ const rom = shallowRef(null)
 const bios = shallowRef([])
 const biosReady = ref(false)
 const artifactGeneration = createArtifactGenerationGuard()
+const emulatorReady = computed(() => (
+  !!rom.value
+  && biosReady.value
+  && !authLoading.value
+  && (!isRoomMode || isHostMode.value)
+))
+
+function freezeBootMappings() {
+  player1KeyMap.value = { ...(mapping.value.keyboard || {}) }
+  player2KeyMap.value = buildPlayer2KeyMap(player1KeyMap.value)
+}
+
+watch(emulatorReady, (ready, wasReady) => {
+  if (ready) {
+    booted.value = false
+    freezeBootMappings()
+  } else if (wasReady) {
+    booted.value = false
+    releaseMappedPulses()
+  }
+}, { flush: 'sync' })
 
 async function resolveRuntimeArtifacts() {
   const generation = artifactGeneration.begin()
@@ -309,15 +409,19 @@ function onBooted() {
 function reloadPage() { window.location.reload() }
 const displayName = computed(() => romMeta.value?.title || (isGuestMode.value ? '连接中…' : '加载中…'))
 watch(() => signalMe.value?.isHost, (isHost, wasHost) => {
+  if (isHost !== wasHost) {
+    releaseMappedPulses()
+    clearGuestControlLocks()
+  }
   if (isHost && !wasHost) {
-    player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
+    freezeBootMappings()
   }
 }, { flush: 'sync' })
 watch(authLoading, (loading) => {
   // A direct /play URL can mount Player before /api/auth/me resolves. Wait for
   // useInputMapping's user-specific localStorage refresh before freezing P2.
   if (!loading && !booted.value) {
-    player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
+    freezeBootMappings()
   }
 }, { flush: 'sync' })
 // Merge P2 bindings when hosting netplay so guest input maps cleanly.
@@ -507,7 +611,18 @@ function goBack() {
     router.push('/')
   }
 }
-function onFullscreen() { portalRef.value?.toggleFullscreen() }
+async function onFullscreen() {
+  const fullscreenElement = document.fullscreenElement || document.webkitFullscreenElement
+  if (fullscreenElement) {
+    if (document.exitFullscreen) await document.exitFullscreen()
+    else if (document.webkitExitFullscreen) document.webkitExitFullscreen()
+    return
+  }
+
+  const player = playerRef.value
+  if (player?.requestFullscreen) await player.requestFullscreen()
+  else if (player?.webkitRequestFullscreen) player.webkitRequestFullscreen()
+}
 function showToast(text) {
   toastText.value = text
   setTimeout(() => { toastText.value = '' }, 1600)
@@ -580,10 +695,30 @@ function setupRoom() {
         dispatchP2Button(data.action, data.button)
       }
     },
+    onControlPulse: (message) => {
+      if (!isHostMode.value || !canGuestPlay.value || !booted.value || !isArcade.value) return
+      startMappedPulse('p2', player2KeyMap.value, message?.button)
+    },
     onStateChange: (s) => {
-      if (s === 'connected' || s === 'dc:open') connectionStatus.value = '已连接'
+      if (s === 'controls:open') controlsChannelOpen.value = true
+      if (
+        s === 'controls:close'
+        || s === 'dc:close'
+        || s === 'disconnected'
+        || s === 'failed'
+        || s === 'closed'
+        || s === 'ice:disconnected'
+        || s === 'ice:failed'
+        || s === 'ice:closed'
+      ) {
+        controlsChannelOpen.value = false
+        clearGuestControlLocks()
+        releaseMappedPulses('p2')
+      }
+
+      if (s === 'connected' || s === 'dc:open' || s === 'controls:open') connectionStatus.value = '已连接'
       else if (s === 'connecting' || s === 'new') connectionStatus.value = '握手中…'
-      else if (s === 'failed' || s === 'closed') connectionStatus.value = '连接断开'
+      else if (s === 'disconnected' || s === 'failed' || s === 'closed') connectionStatus.value = '连接断开'
     },
   })
 
@@ -610,6 +745,9 @@ function setupRoom() {
   signal.on('peer-left', (msg) => {
     delete signalPeers[msg.peerId]
     rtc?.closePeer(msg.peerId)
+    controlsChannelOpen.value = false
+    clearGuestControlLocks()
+    releaseMappedPulses('p2')
     // Clear the guest's video since the stream is dead either way.
     remoteStreamPlaying.value = false
     remoteStreamActive.value = false
@@ -636,7 +774,12 @@ function setupRoom() {
       'host-offline':     '房主不在线，请稍后再试',
     })[msg.reason] || ('信令错误：' + msg.reason)
   })
-  signal.on('closed', () => { signalConnected.value = false })
+  signal.on('closed', () => {
+    signalConnected.value = false
+    controlsChannelOpen.value = false
+    clearGuestControlLocks()
+    releaseMappedPulses('p2')
+  })
 
   signal.connect()
   watch(signal.connected, (v) => { signalConnected.value = v })
@@ -682,13 +825,7 @@ async function hostInviteGuest(peerId) {
 // -- Host: convert guest-sent retropad button into the corresponding P2 key
 function dispatchP2Button(action, button) {
   const mappedKey = player2KeyMap.value[button]
-  if (!mappedKey) return
-  const type = action === 'down' ? 'keydown' : 'keyup'
-  try {
-    const ev = new KeyboardEvent(type, keyboardEventInit(mappedKey))
-    window.dispatchEvent(ev)
-    document.dispatchEvent(ev)
-  } catch {}
+  dispatchMappedKey(action, mappedKey)
 }
 
 // -- Guest: forward keyboard events as button-name messages
@@ -719,7 +856,10 @@ useGamepads({ onButton: guestButtonInterceptor })
 // from the top-bar switcher — same component, same view, new rom id).
 watch(() => props.id, (now, prev) => {
   if (!prev || now === prev) return
-  player2KeyMap.value = buildPlayer2KeyMap(mapping.value.keyboard)
+  releaseMappedPulses()
+  clearGuestControlLocks()
+  controlsChannelOpen.value = false
+  freezeBootMappings()
   romMeta.value = null
   siblings.value = []
   booted.value = false
@@ -745,6 +885,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   artifactGeneration.invalidate()
+  releaseMappedPulses()
+  clearGuestControlLocks()
+  controlsChannelOpen.value = false
   document.removeEventListener('keydown', onKeyDown)
   document.removeEventListener('keydown', guestKeyHandler, true)
   document.removeEventListener('keyup', guestKeyHandler, true)
@@ -1095,6 +1238,20 @@ onBeforeUnmount(() => {
 }
 .hint-enter-from, .hint-leave-to {
   opacity: 0; transform: translateX(-50%) translateY(12px);
+}
+
+@media (max-width: 380px) {
+  .room-chip,
+  .ver-btn {
+    width: 30px;
+    min-width: 30px;
+    height: 34px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 6px;
+  }
+  .chip-count,
+  .ver-cur { display: none; }
 }
 
 @media (min-width: 769px) {

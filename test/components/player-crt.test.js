@@ -16,6 +16,10 @@ const harness = vi.hoisted(() => {
     configurable: true,
     value: storage,
   })
+  Object.defineProperty(document, 'fullscreenEnabled', {
+    configurable: true,
+    value: true,
+  })
 
   return {
     api: {
@@ -35,6 +39,7 @@ const harness = vi.hoisted(() => {
     emulatorInstances: [],
     signal: null,
     rtc: null,
+    rtcOptions: null,
     storage,
   }
 })
@@ -69,7 +74,10 @@ vi.mock('../../src/composables/useRoomSignal.js', () => ({
 }))
 
 vi.mock('../../src/composables/useWebRTC.js', () => ({
-  useWebRTC: () => harness.rtc,
+  useWebRTC: (options) => {
+    harness.rtcOptions = options
+    return harness.rtc
+  },
 }))
 
 vi.mock('../../src/composables/useEmulator.js', async () => {
@@ -168,18 +176,19 @@ function deferred() {
   return { promise, resolve }
 }
 
-function createSignal() {
+function createSignal(isHost = false) {
   const handlers = new Map()
   const connected = ref(false)
   return {
     connected,
+    emit: (event, payload) => handlers.get(event)?.(payload),
     on: vi.fn((event, handler) => handlers.set(event, handler)),
     connect: vi.fn(() => {
       connected.value = true
       queueMicrotask(() => {
         handlers.get('welcome')?.({
-          peerId: 'guest-1',
-          isHost: false,
+          peerId: isHost ? 'host-1' : 'guest-1',
+          isHost,
           peers: [],
           chat: [],
         })
@@ -193,6 +202,7 @@ function createSignal() {
 function createRtc() {
   return {
     sendData: vi.fn(),
+    sendControlPulse: vi.fn(async () => true),
     startCall: vi.fn(),
     closePeer: vi.fn(),
     close: vi.fn(),
@@ -224,6 +234,11 @@ async function settlePlayer() {
   }
 }
 
+function uniqueDispatchedEvents(dispatchSpy, code) {
+  return [...new Set(dispatchSpy.mock.calls.map(([event]) => event))]
+    .filter((event) => !code || event.code === code)
+}
+
 beforeEach(() => {
   harness.storage.clear()
   harness.route.query = {}
@@ -238,13 +253,192 @@ beforeEach(() => {
   }
   harness.signal = createSignal()
   harness.rtc = createRtc()
+  harness.rtcOptions = null
 })
 
 afterEach(() => {
   while (wrappers.length) wrappers.pop().unmount()
+  vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 
 describe('Player arcade CRT behavior', () => {
+  test('keeps the toolbar mounted while metadata is loading and after a load error', async () => {
+    const mine = deferred()
+    harness.api.romsMine.mockReturnValue(mine.promise)
+    harness.api.romsPublic.mockResolvedValue({ roms: [] })
+    const wrapper = mountPlayer()
+
+    expect(wrapper.get('.player-bar').exists()).toBe(true)
+    expect(wrapper.get('.emu-loading').exists()).toBe(true)
+
+    mine.resolve({ roms: [] })
+    await settlePlayer()
+
+    expect(wrapper.get('.player-bar').exists()).toBe(true)
+    expect(wrapper.get('.emu-error').exists()).toBe(true)
+  })
+
+  test('disables arcade controls during core load and guest reconnect without unmounting the toolbar', async () => {
+    const runtime = deferred()
+    configureLocalRom()
+    harness.resolveBuildArtifacts.mockReturnValue(runtime.promise)
+    const local = mountPlayer()
+    await settlePlayer()
+
+    expect(local.get('.player-bar').exists()).toBe(true)
+    expect(local.get('[data-testid="coin-button"]').attributes('disabled')).toBeDefined()
+    runtime.resolve({
+      rom: [{ fileName: 'game.zip', fileContent: new Uint8Array([1, 2, 3]) }],
+      bios: [],
+    })
+    await settlePlayer()
+    expect(local.get('[data-testid="coin-button"]').attributes('disabled')).toBeUndefined()
+    local.unmount()
+
+    configureGuestRoom()
+    const guest = mountPlayer()
+    await settlePlayer()
+    const coin = guest.get('[data-testid="coin-button"]')
+    expect(coin.attributes('disabled')).toBeDefined()
+
+    harness.rtcOptions.onStateChange('controls:open')
+    await nextTick()
+    expect(coin.attributes('disabled')).toBeUndefined()
+
+    harness.rtcOptions.onStateChange('controls:close')
+    await nextTick()
+    expect(guest.get('.player-bar').exists()).toBe(true)
+    expect(coin.attributes('disabled')).toBeDefined()
+  })
+
+  test('fullscreen targets the player container so the mounted toolbar is included', async () => {
+    configureLocalRom()
+    const wrapper = mountPlayer()
+    await settlePlayer()
+    const requestFullscreen = vi.fn(async () => {})
+    wrapper.element.requestFullscreen = requestFullscreen
+
+    await wrapper.get('[aria-label="全屏"]').trigger('click')
+
+    expect(requestFullscreen).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('.player-bar').exists()).toBe(true)
+    expect(harness.emulatorInstances[0].toggleFullscreen).not.toHaveBeenCalled()
+  })
+
+  test('top-bar controls hold the boot-frozen P1 mapping for 150ms on window and document', async () => {
+    vi.useFakeTimers()
+    configureLocalRom()
+    harness.input.mapping.value.keyboard = { select: 'num1', start: 'enter' }
+    const wrapper = mountPlayer()
+    await settlePlayer()
+    harness.input.mapping.value.keyboard = { select: 'num2', start: 'space' }
+    const windowDispatch = vi.spyOn(window, 'dispatchEvent')
+    const documentDispatch = vi.spyOn(document, 'dispatchEvent')
+
+    await wrapper.get('[data-testid="coin-button"]').trigger('click')
+    await wrapper.get('[data-testid="coin-button"]').trigger('click')
+
+    expect(windowDispatch).toHaveBeenCalledTimes(1)
+    expect(uniqueDispatchedEvents(documentDispatch, 'Digit1')).toHaveLength(1)
+    expect(windowDispatch.mock.calls[0][0]).toMatchObject({ type: 'keydown', key: '1', code: 'Digit1' })
+    expect(uniqueDispatchedEvents(documentDispatch, 'Digit1')[0]).toMatchObject({ type: 'keydown', key: '1', code: 'Digit1' })
+
+    await vi.advanceTimersByTimeAsync(149)
+    expect(windowDispatch).toHaveBeenCalledTimes(1)
+    expect(uniqueDispatchedEvents(documentDispatch, 'Digit1')).toHaveLength(1)
+
+    await vi.advanceTimersByTimeAsync(1)
+    expect(windowDispatch).toHaveBeenCalledTimes(2)
+    expect(uniqueDispatchedEvents(documentDispatch, 'Digit1')).toHaveLength(2)
+    expect(windowDispatch.mock.calls[1][0]).toMatchObject({ type: 'keyup', key: '1', code: 'Digit1' })
+    expect(uniqueDispatchedEvents(documentDispatch, 'Digit1')[1]).toMatchObject({ type: 'keyup', key: '1', code: 'Digit1' })
+  })
+
+  test('unmount releases an in-flight local pulse exactly once', async () => {
+    vi.useFakeTimers()
+    configureLocalRom()
+    harness.input.mapping.value.keyboard = { select: 'num1', start: 'enter' }
+    const wrapper = mountPlayer()
+    await settlePlayer()
+    const documentDispatch = vi.spyOn(document, 'dispatchEvent')
+    const expectedEvents = () => uniqueDispatchedEvents(documentDispatch, 'Enter')
+
+    await wrapper.get('[data-testid="start-button"]').trigger('click')
+    expect(expectedEvents().map((event) => event.type)).toEqual(['keydown'])
+    wrapper.unmount()
+    expect(expectedEvents().map((event) => event.type)).toEqual(['keydown', 'keyup'])
+
+    await vi.advanceTimersByTimeAsync(200)
+    expect(expectedEvents().map((event) => event.type)).toEqual(['keydown', 'keyup'])
+  })
+
+  test('guest toolbar pulses use only the reliable controls channel', async () => {
+    configureGuestRoom()
+    const wrapper = mountPlayer()
+    await settlePlayer()
+    harness.rtcOptions.onStateChange('controls:open')
+    await nextTick()
+    const windowDispatch = vi.spyOn(window, 'dispatchEvent')
+    const documentDispatch = vi.spyOn(document, 'dispatchEvent')
+
+    await wrapper.get('[data-testid="coin-button"]').trigger('click')
+    await flushPromises()
+
+    expect(harness.rtc.sendControlPulse).toHaveBeenCalledWith('select')
+    expect(harness.rtc.sendData).not.toHaveBeenCalled()
+    expect(windowDispatch).not.toHaveBeenCalled()
+    expect(documentDispatch).not.toHaveBeenCalled()
+  })
+
+  test('host executes a guest pulse once with its boot-frozen P2 mapping for 150ms', async () => {
+    vi.useFakeTimers()
+    configureGuestRoom()
+    const build = makeBuild('fbneo')
+    harness.api.romBuild.mockResolvedValue({ build })
+    harness.resolveBuildArtifacts.mockResolvedValue({
+      rom: [{ fileName: 'game.zip', fileContent: new Uint8Array([1, 2, 3]) }],
+      bios: [],
+    })
+    harness.signal = createSignal(true)
+    harness.input.mapping.value.keyboard = { select: 'num1', start: 'enter' }
+    mountPlayer()
+    await settlePlayer()
+    harness.input.mapping.value.keyboard = { select: 'num2', start: 'space' }
+    const documentDispatch = vi.spyOn(document, 'dispatchEvent')
+
+    harness.rtcOptions.onControlPulse({ type: 'control-pulse', id: 'guest:1', button: 'select' }, 'guest-1')
+    expect(uniqueDispatchedEvents(documentDispatch, 'NumpadDivide')[0]).toMatchObject({ type: 'keydown', key: '/', code: 'NumpadDivide' })
+    await vi.advanceTimersByTimeAsync(149)
+    expect(uniqueDispatchedEvents(documentDispatch, 'NumpadDivide')).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(uniqueDispatchedEvents(documentDispatch, 'NumpadDivide')[1]).toMatchObject({ type: 'keyup', key: '/', code: 'NumpadDivide' })
+  })
+
+  test('host releases an in-flight P2 pulse when the controls channel disconnects', async () => {
+    vi.useFakeTimers()
+    configureGuestRoom()
+    const build = makeBuild('fbneo')
+    harness.api.romBuild.mockResolvedValue({ build })
+    harness.resolveBuildArtifacts.mockResolvedValue({
+      rom: [{ fileName: 'game.zip', fileContent: new Uint8Array([1, 2, 3]) }],
+      bios: [],
+    })
+    harness.signal = createSignal(true)
+    harness.input.mapping.value.keyboard = { select: 'num1', start: 'enter' }
+    mountPlayer()
+    await settlePlayer()
+    const documentDispatch = vi.spyOn(document, 'dispatchEvent')
+
+    harness.rtcOptions.onControlPulse({ type: 'control-pulse', id: 'guest:2', button: 'start' }, 'guest-1')
+    expect(uniqueDispatchedEvents(documentDispatch, 'NumpadMultiply')[0]).toMatchObject({ type: 'keydown', key: '*', code: 'NumpadMultiply' })
+
+    harness.rtcOptions.onStateChange('controls:close')
+    expect(uniqueDispatchedEvents(documentDispatch, 'NumpadMultiply')[1]).toMatchObject({ type: 'keyup', key: '*', code: 'NumpadMultiply' })
+    await vi.advanceTimersByTimeAsync(200)
+    expect(uniqueDispatchedEvents(documentDispatch, 'NumpadMultiply')).toHaveLength(2)
+  })
+
   test('defaults off and toggles the local canvas without remounting or rebooting EmulatorPortal', async () => {
     configureLocalRom()
     const wrapper = mountPlayer()

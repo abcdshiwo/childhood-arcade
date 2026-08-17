@@ -5,6 +5,31 @@
       <span class="bar-btn-label">返回</span>
     </button>
 
+    <button
+      v-if="canUseArcadeControls"
+      class="bar-btn"
+      data-testid="coin-button"
+      aria-label="投币"
+      title="投币"
+      :disabled="!arcadeControlsEnabled"
+      @click="$emit('coin')"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><path d="M18.1 10.4A6 6 0 1 1 10.4 18"/><path d="M7 6h1v4"/><path d="m16.7 13.9.7.7-2.8 2.8"/></svg>
+      <span class="bar-btn-label">投币</span>
+    </button>
+    <button
+      v-if="canUseArcadeControls"
+      class="bar-btn"
+      data-testid="start-button"
+      aria-label="开始"
+      title="开始"
+      :disabled="!arcadeControlsEnabled"
+      @click="$emit('start')"
+    >
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 4 13 8L7 20V4z"/></svg>
+      <span class="bar-btn-label">开始</span>
+    </button>
+
     <div class="bar-center">
       <span class="bar-badge" :style="{ background: platform.color }">{{ platform.label }}</span>
       <h2 class="bar-title">{{ title }}</h2>
@@ -51,10 +76,12 @@ defineProps({
   platform: { type: Object, required: true },
   coreName: String,
   canSave: { type: Boolean, default: true },
+  canUseArcadeControls: { type: Boolean, default: false },
+  arcadeControlsEnabled: { type: Boolean, default: false },
   canToggleCrt: { type: Boolean, default: false },
   crtEnabled: { type: Boolean, default: false },
 })
-defineEmits(['back', 'fullscreen', 'keys', 'save-state', 'load-state', 'toggle-crt'])
+defineEmits(['back', 'fullscreen', 'keys', 'save-state', 'load-state', 'coin', 'start', 'toggle-crt'])
 
 const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
@@ -177,6 +204,11 @@ const canFullscreen = hasFs && !isIOS
   color: #fff;
 }
 .bar-btn:active { transform: scale(0.96); }
+.bar-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  transform: none;
+}
 .bar-btn-accent {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);

@@ -322,8 +322,9 @@ test('player waits for user-specific input mapping before mounting the emulator'
     'utf8',
   )
 
-  assert.match(source, /rom && biosReady && !authLoading/)
-  assert.match(source, /watch\(authLoading,[\s\S]*buildPlayer2KeyMap\(mapping\.value\.keyboard\)/)
+  assert.match(source, /v-if="emulatorReady"/)
+  assert.match(source, /const emulatorReady = computed\([\s\S]*!!rom\.value[\s\S]*biosReady\.value[\s\S]*!authLoading\.value/)
+  assert.match(source, /watch\(emulatorReady,[\s\S]*freezeBootMappings\(\)/)
 })
 
 test('Player and EmulatorPortal wire generation and Blob identity guards into runtime switching', async () => {
@@ -387,4 +388,22 @@ test('arcade CRT preference controls both local canvas and guest video without r
   assert.match(player, /pointer-events:\s*none/)
   assert.match(player, /\.remote-video[\s\S]*opacity:\s*0[\s\S]*\.remote-video\.stream-visible\s*\{\s*opacity:\s*1/)
   assert.match(overlay, /aria-pressed="crtEnabled"/)
+})
+
+test('arcade toolbar exposes mapped coin and start controls', async () => {
+  const [player, overlay] = await Promise.all([
+    readFile(new URL('../src/views/Player.vue', import.meta.url), 'utf8'),
+    readFile(new URL('../src/components/emulator-portal/GameOverlay.vue', import.meta.url), 'utf8'),
+  ])
+
+  assert.match(player, /:can-use-arcade-controls="isArcade"/)
+  assert.match(player, /:arcade-controls-enabled="arcadeControlsEnabled"/)
+  assert.match(player, /@coin="pressArcadeControl\('select'\)"/)
+  assert.match(player, /@start="pressArcadeControl\('start'\)"/)
+  assert.match(player, /startMappedPulse\('p1', player1KeyMap\.value, button\)/)
+  assert.match(player, /CONTROL_PULSE_MS\s*=\s*150/)
+  assert.match(player, /for \(const target of \[window, document\]\)/)
+  assert.match(player, /ref="playerRef"/)
+  assert.match(overlay, /data-testid="coin-button"/)
+  assert.match(overlay, /data-testid="start-button"/)
 })

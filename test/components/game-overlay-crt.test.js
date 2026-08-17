@@ -11,6 +11,8 @@ function mountOverlay(props = {}) {
     props: {
       title: '拳皇 97',
       platform: arcade,
+      canUseArcadeControls: true,
+      arcadeControlsEnabled: true,
       canToggleCrt: true,
       crtEnabled: false,
       ...props,
@@ -37,8 +39,31 @@ describe('GameOverlay CRT control', () => {
   })
 
   test('hides the filter control for non-arcade platforms', () => {
-    const wrapper = mountOverlay({ canToggleCrt: false })
+    const wrapper = mountOverlay({ canToggleCrt: false, canUseArcadeControls: false })
     expect(wrapper.find('[data-testid="crt-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="coin-button"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="start-button"]').exists()).toBe(false)
+  })
+
+  test('emits arcade coin and start commands from the toolbar', async () => {
+    const wrapper = mountOverlay()
+
+    await wrapper.get('[data-testid="coin-button"]').trigger('click')
+    await wrapper.get('[data-testid="start-button"]').trigger('click')
+
+    expect(wrapper.emitted('coin')).toHaveLength(1)
+    expect(wrapper.emitted('start')).toHaveLength(1)
+  })
+
+  test('keeps arcade controls visible but disabled until the player can accept pulses', async () => {
+    const wrapper = mountOverlay({ arcadeControlsEnabled: false })
+
+    expect(wrapper.get('[data-testid="coin-button"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="start-button"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.setProps({ arcadeControlsEnabled: true })
+    expect(wrapper.get('[data-testid="coin-button"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="start-button"]').attributes('disabled')).toBeUndefined()
   })
 
   test('keeps every icon control inside a 320px toolbar budget with accessible active text', () => {
