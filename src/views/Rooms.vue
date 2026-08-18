@@ -188,10 +188,10 @@ function platformLabel(p) { return getPlatform(p).shortLabel }
 function roomTitle(room) {
   return getArcadeTitle({
     coreName: room?.romCoreName || room?.coreName,
-    setName: room?.romSetName,
-    setNameNormalized: room?.romSetName,
+    setName: room?.romSetName || room?.setName,
+    setNameNormalized: room?.romSetName || room?.romSetNameNormalized || room?.setNameNormalized || room?.setName,
     title: room?.romTitle,
-    originalTitle: room?.romTitle,
+    originalTitle: room?.romOriginalTitle || room?.originalTitle || room?.romTitle,
     versionLabel: room?.romVersionLabel,
     variantKind: room?.romVariantKind,
     platform: room?.romPlatform,

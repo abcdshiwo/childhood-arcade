@@ -45,6 +45,7 @@ function mountRooms() {
   return mount(Rooms, {
     global: {
       stubs: {
+        'router-link': { template: '<a><slot /></a>' },
         CreateRoomDialog: true,
         JoinRoomDialog: true,
         EditRoomDialog: true,
@@ -77,5 +78,19 @@ describe('Rooms bilingual arcade titles', () => {
 
     expect(wrapper.get('.room-game-title').text()).toBe('未来测试 ROM')
     expect(wrapper.find('.room-game-title-en').exists()).toBe(false)
+  })
+
+  test('accepts normalized room metadata aliases when resolving a catalog title', async () => {
+    harness.api.roomsPublic.mockResolvedValue({ rooms: [room({
+      id: 3,
+      romSetName: undefined,
+      romSetNameNormalized: 'kof97',
+      romOriginalTitle: "The King of Fighters '97 (NGM-2320)",
+    })] })
+    const wrapper = mountRooms()
+    await flushPromises()
+
+    expect(wrapper.get('.room-game-title').text()).toBe('拳皇 97（NGM-2320）')
+    expect(wrapper.get('.room-game-title-en').text()).toContain("The King of Fighters '97")
   })
 })
