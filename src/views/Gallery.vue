@@ -338,6 +338,7 @@ function variantBadges(rom) {
     ? [{ key: rom.variantKind, label: labels[rom.variantKind] }]
     : [{ key: 'unknown', label: '未分类' }]
   if (isClone(rom)) badges.push({ key: 'clone', label: 'CLONE' })
+  if (rom.publicationMode === 'experimental') badges.push({ key: 'experimental', label: '实验' })
   return badges
 }
 
@@ -916,6 +917,7 @@ function onCardKeydown(event, rom) {
 .variant-bootleg { color: var(--arcade-amber); background: rgba(255, 194, 71, 0.07); border-color: rgba(255, 194, 71, 0.38); }
 .variant-clone { color: var(--arcade-cyan); background: rgba(33, 230, 255, 0.07); border-color: rgba(33, 230, 255, 0.35); }
 .variant-unknown { color: var(--arcade-muted); background: rgba(154, 175, 181, 0.06); border-color: rgba(154, 175, 181, 0.3); }
+.variant-experimental { color: var(--arcade-amber); background: rgba(255, 194, 71, 0.07); border-color: rgba(255, 194, 71, 0.38); }
 
 .game-metadata {
   display: grid;

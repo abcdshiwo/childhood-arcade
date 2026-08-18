@@ -463,6 +463,23 @@ async function createFixture() {
     VALUES (2001, 101, ?, 'exact', 'parent', ?)
   `).run(thumbnail.id, thumbnail.sha)
   contracted.prepare('UPDATE roms SET active_thumbnail_ref_id = 2001 WHERE id = 101').run()
+  contracted.prepare(`
+    INSERT INTO import_batches
+      (id, owner_user_id, cold_source_sha256, manifest_sha256,
+       planned_count, actual_count, total_bytes, status)
+    VALUES ('experimental-batch', 1, ?, ?, 1, 1, ?, 'committed_private')
+  `).run(sha256('experimental-cold-source'), sha256('experimental-manifest'), archiveById.get(22).fileSize)
+  contracted.prepare(`
+    INSERT INTO batch_build_refs (import_batch_id, rom_build_id)
+    VALUES ('experimental-batch', 1003)
+  `).run()
+  contracted.prepare(`
+    INSERT INTO rom_asset_refs
+      (id, rom_id, asset_id, match_kind, source_set_name, source_file_sha256,
+       import_batch_id)
+    VALUES (2002, 103, ?, 'exact', 'unverified', ?, 'experimental-batch')
+  `).run(thumbnail.id, thumbnail.sha)
+  contracted.prepare('UPDATE roms SET active_thumbnail_ref_id = 2002 WHERE id = 103').run()
   contracted.close()
   return result
 }
@@ -525,6 +542,76 @@ test('owners and admins can see private unverified builds while strangers cannot
   const adminPrivate = admin.data.roms.find((rom) => rom.id === 104)
   assert.equal(adminPrivate.compatStatus, 'unverified')
   assert.equal(adminPrivate.activeBuild.id, 1004)
+})
+
+test('experimental publication exposes only imported unverified builds without forging readiness', async () => {
+  process.env.ARCADE_EXPERIMENTAL_UNVERIFIED = '1'
+  db.$client.prepare('UPDATE roms SET is_public = 1 WHERE id = 104').run()
+  try {
+    const { response, data } = await json('/api/roms/public')
+    assert.equal(response.status, 200)
+
+    const experimental = data.roms.find((rom) => rom.id === 103)
+    assert.ok(experimental)
+    assert.equal(experimental.compatStatus, 'unverified')
+    assert.equal(experimental.publicationMode, 'experimental')
+    assert.equal(experimental.activeBuild.id, 1003)
+    assert.equal(data.roms.some((rom) => rom.id === 104), false)
+  } finally {
+    delete process.env.ARCADE_EXPERIMENTAL_UNVERIFIED
+    db.$client.prepare('UPDATE roms SET is_public = 0 WHERE id = 104').run()
+  }
+
+  const strict = await json('/api/roms/public')
+  assert.equal(strict.data.roms.some((rom) => rom.id === 103), false)
+})
+
+test('experimental publication authorizes imported build files and thumbnails only while enabled', async () => {
+  process.env.ARCADE_EXPERIMENTAL_UNVERIFIED = '1'
+  try {
+    const build = await json('/api/rom-builds/1003', { token: 'stranger-token' })
+    assert.equal(build.response.status, 200)
+    assert.equal(build.data.build.compatStatus, 'unverified')
+    assert.equal(build.data.build.publicationMode, 'experimental')
+
+    const thumbnail = await request(`/api/roms/103/thumbnail?v=${fixture.thumbnail.sha}`)
+    assert.equal(thumbnail.status, 200)
+    assert.equal(thumbnail.headers.get('cache-control'), 'public, max-age=31536000, immutable')
+    await thumbnail.arrayBuffer()
+  } finally {
+    delete process.env.ARCADE_EXPERIMENTAL_UNVERIFIED
+  }
+
+  const strictBuild = await request('/api/rom-builds/1003', { token: 'stranger-token' })
+  assert.equal(strictBuild.status, 403)
+  const strictThumbnail = await request(`/api/roms/103/thumbnail?v=${fixture.thumbnail.sha}`)
+  assert.equal(strictThumbnail.status, 401)
+})
+
+test('experimental publication allows rooms for imported unverified builds only while enabled', async () => {
+  process.env.ARCADE_EXPERIMENTAL_UNVERIFIED = '1'
+  let roomId = null
+  try {
+    const created = await json('/api/rooms', {
+      method: 'POST',
+      token: 'owner-token',
+      body: { name: 'Experimental Imported', romId: 103, isPublic: false },
+    })
+    assert.equal(created.response.status, 200)
+    assert.equal(created.data.romBuildId, 1003)
+    assert.equal(created.data.publicationMode, 'experimental')
+    roomId = created.data.id
+  } finally {
+    delete process.env.ARCADE_EXPERIMENTAL_UNVERIFIED
+    if (roomId) db.$client.prepare('DELETE FROM rooms WHERE id = ?').run(roomId)
+  }
+
+  const rejected = await json('/api/rooms', {
+    method: 'POST',
+    token: 'owner-token',
+    body: { name: 'Experimental Disabled', romId: 103, isPublic: false },
+  })
+  assert.equal(rejected.response.status, 409)
 })
 
 test('split build resolution returns exact parent then child archives', async () => {

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { customAlphabet } from 'nanoid'
 import { db } from '../db/index.js'
 import {
+  batchBuildRefs,
   buildValidationRuns,
   coreArtifacts,
   romBuilds,
@@ -16,6 +17,8 @@ import {
 import { requireAuth, currentUser } from '../middleware/auth.js'
 import { getSetting } from './settings.js'
 import { isHostOnline } from '../room-hub.js'
+import { computeCompatibilityStatus } from '../services/build-contract.js'
+import { experimentalPublicationEnabled, publicationMode } from '../services/publication-policy.js'
 
 const liveRoom = (extra) =>
   extra ? and(eq(rooms.status, STATUS.normal), isNull(rooms.closedAt), extra)
@@ -50,7 +53,7 @@ function serializeRoom(row, extras = {}) {
   }
 }
 
-function buildExtras({ rom, build, core }) {
+function buildExtras({ rom, build, core, publicationMode: mode = null }) {
   return {
     romTitle: rom.title,
     romPlatform: rom.platform,
@@ -63,6 +66,7 @@ function buildExtras({ rom, build, core }) {
     coreName: core.coreName,
     coreVersion: core.displayVersion,
     coreArtifactFingerprint: core.artifactFingerprint,
+    publicationMode: mode,
   }
 }
 
@@ -79,13 +83,29 @@ function readyActiveBuild(tx, rom) {
     .where(and(
       eq(buildValidationRuns.romBuildId, build.id),
       eq(buildValidationRuns.acceptance, 'accepted'),
-      eq(buildValidationRuns.result, 'passed'),
     ))
     .limit(1).get()
-  if (!accepted) return null
+  const compatStatus = computeCompatibilityStatus({
+    staticStatus: build.staticStatus,
+    acceptedResult: accepted?.result ?? null,
+  })
+  const hasBatchReference = Boolean(
+    compatStatus === 'unverified' &&
+    experimentalPublicationEnabled() &&
+    tx.select({ buildId: batchBuildRefs.romBuildId })
+      .from(batchBuildRefs)
+      .where(eq(batchBuildRefs.romBuildId, build.id))
+      .limit(1).get(),
+  )
+  const mode = publicationMode({
+    rom,
+    build: { staticStatus: build.staticStatus, compatStatus },
+    hasBatchReference,
+  })
+  if (!mode) return null
   const core = tx.select().from(coreArtifacts)
     .where(eq(coreArtifacts.id, build.coreArtifactId)).limit(1).get()
-  return core ? { build, core } : null
+  return core ? { build, core, publicationMode: mode } : null
 }
 
 async function detailsForRoom(row) {
@@ -219,6 +239,7 @@ roomRoutes.post('/', requireAuth, async (c) => {
       rom: pinned.currentRom,
       build: pinned.ready.build,
       core: pinned.ready.core,
+      publicationMode: pinned.ready.publicationMode,
     }),
   }))
 })

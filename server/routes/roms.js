@@ -30,6 +30,7 @@ import {
   computeCompatibilityStatus,
 } from '../services/build-contract.js'
 import { createContentStore } from '../services/content-store.js'
+import { experimentalPublicationEnabled, publicationMode } from '../services/publication-policy.js'
 import {
   countAssetReferences,
   hashCanonicalLibraryJson,
@@ -227,6 +228,12 @@ async function hydrateBuilds(buildIds) {
   )
   const assetById = new Map(archiveAssets.map((asset) => [asset.id, asset]))
   const validationByBuild = await acceptedResults(uniqueBuildIds)
+  const importedBuildIds = experimentalPublicationEnabled()
+    ? new Set((await db.select({ buildId: batchBuildRefs.romBuildId })
+      .from(batchBuildRefs)
+      .where(inArray(batchBuildRefs.romBuildId, uniqueBuildIds)))
+      .map(({ buildId }) => buildId))
+    : new Set()
   const result = new Map()
 
   for (const root of rootBuilds) {
@@ -236,6 +243,11 @@ async function hydrateBuilds(buildIds) {
     const compatStatus = computeCompatibilityStatus({
       staticStatus: root.staticStatus,
       acceptedResult: validationByBuild.get(root.id) ?? null,
+    })
+    const mode = publicationMode({
+      rom,
+      build: { staticStatus: root.staticStatus, compatStatus },
+      hasBatchReference: importedBuildIds.has(root.id),
     })
     const chain = []
     if (root.archiveLayout === 'split') {
@@ -268,6 +280,7 @@ async function hydrateBuilds(buildIds) {
       fingerprint: root.buildFingerprint,
       contentManifestSha256: root.contentManifestSha256,
       compatStatus,
+      publicationMode: mode,
       archiveLayout: root.archiveLayout,
       runtimeParentBuildId: root.runtimeParentBuildId ?? null,
       core: serializeCoreArtifact(core),
@@ -275,6 +288,7 @@ async function hydrateBuilds(buildIds) {
       createdAt: root.createdAt,
       _build: root,
       _rom: rom,
+      _hasBatchReference: importedBuildIds.has(root.id),
       _archiveAssets: new Map(
         chain.map(({ build }) => [build.id, assetById.get(build.archiveAssetId)]),
       ),
@@ -306,14 +320,18 @@ function publicBuild(build, rom) {
     build &&
     rom.status === STATUS.normal &&
     rom.isPublic &&
-    build.compatStatus === 'ready',
+    build.publicationMode,
   )
 }
 
 function publicBuildView(build) {
   if (!build) return null
-  const { _build, _rom, _archiveAssets, ...view } = build
+  const { _build, _rom, _archiveAssets, _hasBatchReference, ...view } = build
   return view
+}
+
+function publicRomView(rom) {
+  return Boolean(rom?.isPublic && rom?.publicationMode)
 }
 
 export async function serializeRomRows(romRows, {
@@ -358,6 +376,7 @@ export async function serializeRomRows(romRows, {
       coreVersion: build?.core?.version ?? null,
       coreArtifactFingerprint: build?.core?.artifactFingerprint ?? null,
       compatStatus: build?.compatStatus ?? null,
+      publicationMode: build?.publicationMode ?? null,
       archiveLayout: build?.archiveLayout ?? null,
       activeBuild: publicBuildView(build),
       thumbnailUrl: thumbnailAsset
@@ -449,7 +468,7 @@ romRoutes.get('/public', async (c) => {
     favoriteIds,
     versionCounts,
   })
-  return c.json({ roms: serialized.filter((rom) => rom.compatStatus === 'ready') })
+  return c.json({ roms: serialized.filter(publicRomView) })
 })
 
 romRoutes.get('/:id/versions', async (c) => {
@@ -472,7 +491,7 @@ romRoutes.get('/:id/versions', async (c) => {
   return c.json({
     parentId,
     versions: serialized.filter((rom) =>
-      me?.role === 'admin' || rom.userId === me?.id || (rom.isPublic && rom.compatStatus === 'ready'),
+      me?.role === 'admin' || rom.userId === me?.id || publicRomView(rom),
     ),
   })
 })
@@ -494,7 +513,7 @@ romRoutes.get('/favorites', requireAuth, async (c) => {
   })
   return c.json({
     roms: serialized.filter((rom) =>
-      user.role === 'admin' || rom.userId === user.id || (rom.isPublic && rom.compatStatus === 'ready'),
+      user.role === 'admin' || rom.userId === user.id || publicRomView(rom),
     ),
   })
 })
@@ -508,7 +527,7 @@ romRoutes.post('/:id/favorite', requireAuth, async (c) => {
   if (
     user.role !== 'admin' &&
     rom.userId !== user.id &&
-    !(rom.isPublic && rom.compatStatus === 'ready')
+    !publicRomView(rom)
   ) {
     return c.json({ error: 'forbidden' }, 403)
   }
@@ -982,6 +1001,7 @@ romRoutes.get('/:id/thumbnail', async (c) => {
     ownerId: roms.userId,
     romStatus: roms.status,
     isPublic: roms.isPublic,
+    buildId: romBuilds.id,
     thumbnailImportBatchId: romAssetRefs.importBatchId,
     asset: assets,
     buildStaticStatus: romBuilds.staticStatus,
@@ -1007,14 +1027,29 @@ romRoutes.get('/:id/thumbnail', async (c) => {
   if (!asset || asset.kind !== 'thumbnail' || asset.sha256 !== version) {
     return c.json({ error: 'not found' }, 404)
   }
-  const publiclyReadable = Boolean(
-    resource.romStatus === STATUS.normal &&
-    resource.isPublic &&
-    resource.buildStaticStatus &&
-    computeCompatibilityStatus({
+  const compatStatus = resource?.buildStaticStatus
+    ? computeCompatibilityStatus({
       staticStatus: resource.buildStaticStatus,
       acceptedResult: resource.acceptedResult,
-    }) === 'ready',
+    })
+    : null
+  const hasBatchReference = Boolean(
+    compatStatus === 'unverified' &&
+    experimentalPublicationEnabled() &&
+    resource?.isPublic &&
+    (await db.select({ buildId: batchBuildRefs.romBuildId })
+      .from(batchBuildRefs)
+      .where(eq(batchBuildRefs.romBuildId, resource.buildId))
+      .limit(1))[0],
+  )
+  const publiclyReadable = Boolean(
+    resource?.romStatus === STATUS.normal &&
+    resource?.isPublic &&
+    publicationMode({
+      rom: { isPublic: resource?.isPublic },
+      build: { staticStatus: resource?.buildStaticStatus, compatStatus },
+      hasBatchReference,
+    }),
   )
   if (!publiclyReadable) {
     const user = await currentUserPrincipal(c)

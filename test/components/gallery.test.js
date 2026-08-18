@@ -196,6 +196,15 @@ describe('CRT gallery', () => {
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
+  test('marks experimental catalog builds without changing their ROM variant label', async () => {
+    const wrapper = await mountGallery([
+      makeRom({ id: 9, variantKind: 'hack', publicationMode: 'experimental' }),
+    ])
+
+    expect(card(wrapper, 9).findAll('.variant-badge').map((badge) => badge.text()))
+      .toEqual(['HACK', '实验'])
+  })
+
   test('uses lazy stable image frames with truthful match labels and an error fallback', async () => {
     const wrapper = await mountGallery()
     const labels = new Map(wrapper.findAll('.game-card').map((item) => [
