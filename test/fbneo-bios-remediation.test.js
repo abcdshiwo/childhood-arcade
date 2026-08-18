@@ -40,6 +40,8 @@ function fixture(t) {
   const js = putAsset(assetRoot, Buffer.from('fbneo-js'))
   const wasm = putAsset(assetRoot, Buffer.from('fbneo-wasm'))
   const bios = putAsset(assetRoot, Buffer.from('exact-neogeo-bios'))
+  const parentArchive = putAsset(assetRoot, Buffer.from('parent-rom-archive'))
+  const cloneArchive = putAsset(assetRoot, Buffer.from('clone-rom-archive'))
   const biosManifest = {
     schemaVersion: 1,
     kind: 'core-bios-manifest-v1',
@@ -94,6 +96,7 @@ function fixture(t) {
   db.prepare('INSERT INTO users (id, status) VALUES (1, 1)').run()
   const assetRows = [
     [1, 'core_js', js], [2, 'core_wasm', wasm], [3, 'bios', bios], [4, 'bios_manifest', biosManifestAsset],
+    [20, 'rom', parentArchive], [21, 'rom', cloneArchive],
   ]
   for (const [id, kind, asset] of assetRows) {
     db.prepare('INSERT INTO assets (id, kind, file_path, file_size, sha256) VALUES (?, ?, ?, ?, ?)')
@@ -134,13 +137,13 @@ function fixture(t) {
   db.prepare('INSERT INTO roms (id, set_name_normalized, active_build_id) VALUES (?, ?, ?)').run(11, 'clone', 101)
   const parentFingerprint = computeBuildFingerprint({
     logicalRomScope: 'w165:fbneo:parent', setNameNormalized: 'parent',
-    coreArtifactFingerprint: sourceFingerprint, archiveSha256: 'c'.repeat(64),
+    coreArtifactFingerprint: sourceFingerprint, archiveSha256: parentArchive.sha256,
     contentManifestSha256: 'd'.repeat(64), archiveLayout: 'standalone',
     runtimeParentBuildFingerprint: null, biosManifestSha256: null,
   })
   const cloneFingerprint = computeBuildFingerprint({
     logicalRomScope: 'w165:fbneo:clone', setNameNormalized: 'clone',
-    coreArtifactFingerprint: sourceFingerprint, archiveSha256: 'f'.repeat(64),
+    coreArtifactFingerprint: sourceFingerprint, archiveSha256: cloneArchive.sha256,
     contentManifestSha256: '0'.repeat(64), archiveLayout: 'split',
     runtimeParentBuildFingerprint: parentFingerprint, biosManifestSha256: null,
   })
@@ -149,13 +152,13 @@ function fixture(t) {
       (id, rom_id, core_artifact_id, archive_asset_id, archive_sha256, content_manifest_sha256,
        build_fingerprint, static_status, static_failure_details_json, archive_layout, runtime_parent_build_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, ?, ?)
-  `).run(100, 10, 5, 20, 'c'.repeat(64), 'd'.repeat(64), parentFingerprint, JSON.stringify({ candidateId: 'fbneo:parent' }), 'standalone', null)
+  `).run(100, 10, 5, 20, parentArchive.sha256, 'd'.repeat(64), parentFingerprint, JSON.stringify({ candidateId: 'fbneo:parent' }), 'standalone', null)
   db.prepare(`
     INSERT INTO rom_builds
       (id, rom_id, core_artifact_id, archive_asset_id, archive_sha256, content_manifest_sha256,
        build_fingerprint, static_status, static_failure_details_json, archive_layout, runtime_parent_build_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, 'complete', ?, ?, ?)
-  `).run(101, 11, 5, 21, 'f'.repeat(64), '0'.repeat(64), cloneFingerprint, JSON.stringify({ candidateId: 'fbneo:clone' }), 'split', 100)
+  `).run(101, 11, 5, 21, cloneArchive.sha256, '0'.repeat(64), cloneFingerprint, JSON.stringify({ candidateId: 'fbneo:clone' }), 'split', 100)
   db.prepare('INSERT INTO batch_build_refs VALUES (?, ?)').run('w165-source', 100)
   db.prepare('INSERT INTO batch_build_refs VALUES (?, ?)').run('w165-source', 101)
   t.after(() => { db.close(); rmSync(root, { recursive: true, force: true }) })
@@ -208,5 +211,37 @@ test('FBNeo BIOS remediation rejects a target core without the exact BIOS proven
     targetCoreFingerprint: f.targetFingerprint,
     expectedBuildCount: 2,
   }), /neogeo\.zip|BIOS provenance/i)
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM import_batches WHERE id = ?').get('w165-fbneo-bios-v1').n, 0)
+})
+
+test('FBNeo BIOS remediation rejects corrupted target core bytes before promotion', (t) => {
+  const f = fixture(t)
+  const jsAsset = f.db.prepare('SELECT file_path FROM assets WHERE id = 1').get()
+  writeFileSync(join(f.assetRoot, ...jsAsset.file_path.split('/')), Buffer.from('corrupted-fbneo-js'))
+
+  assert.throws(() => applyFbneoBiosRemediation(f.db, {
+    assetRoot: f.assetRoot,
+    originBatchId: 'w165-source',
+    remediationBatchId: 'w165-fbneo-bios-v1',
+    sourceCoreFingerprint: f.sourceFingerprint,
+    targetCoreFingerprint: f.targetFingerprint,
+    expectedBuildCount: 2,
+  }), /target core JavaScript.*content/i)
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM import_batches WHERE id = ?').get('w165-fbneo-bios-v1').n, 0)
+})
+
+test('FBNeo BIOS remediation rejects corrupted source archive bytes before promotion', (t) => {
+  const f = fixture(t)
+  const archive = f.db.prepare('SELECT file_path FROM assets WHERE id = 21').get()
+  writeFileSync(join(f.assetRoot, ...archive.file_path.split('/')), Buffer.from('corrupted-rom-archive'))
+
+  assert.throws(() => applyFbneoBiosRemediation(f.db, {
+    assetRoot: f.assetRoot,
+    originBatchId: 'w165-source',
+    remediationBatchId: 'w165-fbneo-bios-v1',
+    sourceCoreFingerprint: f.sourceFingerprint,
+    targetCoreFingerprint: f.targetFingerprint,
+    expectedBuildCount: 2,
+  }), /build 101 ROM archive.*content/i)
   assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM import_batches WHERE id = ?').get('w165-fbneo-bios-v1').n, 0)
 })

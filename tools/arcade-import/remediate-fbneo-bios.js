@@ -74,6 +74,30 @@ function verifyStoredAsset(contentStore, asset, label) {
   return bytes
 }
 
+function validateCoreRuntimeAssets(sqlite, core, assetRoot) {
+  const contentStore = createContentStore({ root: resolve(assetRoot) })
+  for (const { assetId, digest, kind, label } of [
+    {
+      assetId: core.js_asset_id,
+      digest: core.js_sha256,
+      kind: 'core_js',
+      label: 'target core JavaScript',
+    },
+    {
+      assetId: core.wasm_asset_id,
+      digest: core.wasm_sha256,
+      kind: 'core_wasm',
+      label: 'target core WebAssembly',
+    },
+  ]) {
+    const asset = sqlite.prepare('SELECT * FROM assets WHERE id = ?').get(assetId)
+    if (!asset || asset.kind !== kind || asset.sha256 !== digest) {
+      throw new Error(`${label} asset is invalid`)
+    }
+    verifyStoredAsset(contentStore, asset, label)
+  }
+}
+
 function validateBiosCore(sqlite, core, assetRoot) {
   const provenance = parseJson(core.provenance_json, 'target core provenance')
   const bios = provenance.bios
@@ -157,8 +181,34 @@ function validateCorePair(sqlite, {
   if (target.bios_asset_id === null || target.bios_manifest_sha256 === null) {
     throw new Error('target FBNeo core has no immutable BIOS identity')
   }
+  validateCoreRuntimeAssets(sqlite, target, assetRoot)
   validateBiosCore(sqlite, target, assetRoot)
   return { source, target }
+}
+
+function validateSourceArchives(sqlite, sourceBuilds, assetRoot) {
+  const contentStore = createContentStore({ root: resolve(assetRoot) })
+  const verifiedAssets = new Set()
+  for (const build of sourceBuilds) {
+    const assetId = Number(build.archive_asset_id)
+    const digest = String(build.archive_sha256 || '').toLowerCase()
+    if (!Number.isSafeInteger(assetId) || assetId <= 0 || !SHA256_PATTERN.test(digest)) {
+      throw new Error(`build ${build.id} ROM archive identity is invalid`)
+    }
+    const identity = `${assetId}:${digest}`
+    if (verifiedAssets.has(identity)) continue
+    const asset = sqlite.prepare('SELECT * FROM assets WHERE id = ?').get(assetId)
+    const expectedPath = `sha256/${digest.slice(0, 2)}/${digest}`
+    if (
+      !asset || asset.kind !== 'rom' || asset.sha256 !== digest ||
+      asset.file_path !== expectedPath || !Number.isSafeInteger(Number(asset.file_size)) ||
+      Number(asset.file_size) < 0
+    ) {
+      throw new Error(`build ${build.id} ROM archive asset is invalid`)
+    }
+    verifyStoredAsset(contentStore, asset, `build ${build.id} ROM archive`)
+    verifiedAssets.add(identity)
+  }
 }
 
 function candidateId(build) {
@@ -243,6 +293,7 @@ export function planFbneoBiosRemediation(sqlite, options) {
   if (sourceBuilds.some((build) => build.static_status !== 'complete')) {
     throw new Error('FBNeo BIOS remediation only accepts complete source builds')
   }
+  validateSourceArchives(sqlite, sourceBuilds, options.assetRoot)
   const builds = replacementBuildPlan(sourceBuilds, target)
   const manifest = {
     schemaVersion: 1,
