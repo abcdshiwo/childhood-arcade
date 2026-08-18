@@ -47,11 +47,14 @@ function u32(value) {
   return out
 }
 
-function deterministicZip(entries) {
+function deterministicZip(entries, { preserveEntryOrder = false } = {}) {
   const local = []
   const central = []
   let offset = 0
-  for (const [name, bytes] of [...entries].sort(([left], [right]) => left.localeCompare(right))) {
+  const orderedEntries = preserveEntryOrder
+    ? [...entries]
+    : [...entries].sort(([left], [right]) => left.localeCompare(right))
+  for (const [name, bytes] of orderedEntries) {
     const nameBytes = Buffer.from(name, 'utf8')
     const compressed = deflateRawSync(bytes, { level: 9 })
     const crc = crc32(bytes)
@@ -274,6 +277,19 @@ test('commit accepts a deterministic prepared ZIP and a complete existing core w
   const result = commitFixture(fixture(t))
   assert.equal(result.dryRun, true)
   assert.equal(result.plannedAssets, 1)
+})
+
+test('commit accepts manifest members in deterministic byte order', (t) => {
+  const entries = [
+    ['41-1m.3a', Buffer.from('dash-member')],
+    ['41_19.12c', Buffer.from('underscore-member')],
+  ]
+  const result = commitFixture(fixture(t, {
+    archiveBytes: deterministicZip(entries, { preserveEntryOrder: true }),
+    contractEntries: entries,
+  }))
+  assert.equal(result.dryRun, true)
+  assert.equal(result.plannedCandidates, 1)
 })
 
 test('commit independently rejects malformed prepared archive members', (t) => {

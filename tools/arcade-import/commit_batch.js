@@ -41,6 +41,10 @@ const ZIP_UTF8_FLAG = 0x0800
 const ZIP_UNIX_PLATFORM = 3
 const ZIP_REGULAR_FILE_MODE = 0o100000
 const ZIP_FILE_TYPE_MASK = 0o170000
+
+function compareStableText(left, right) {
+  return Buffer.from(String(left), 'utf8').compare(Buffer.from(String(right), 'utf8'))
+}
 const CRC32_TABLE = Uint32Array.from({ length: 256 }, (_, index) => {
   let value = index
   for (let bit = 0; bit < 8; bit += 1) {
@@ -212,8 +216,10 @@ function assertManifestContractBinding(manifest, ledger) {
     if (!['blocked', 'unsupported'].includes(resolution.state)) {
       const expectedMembers = expectedOutputMembers(contract, contractsByCoreSet)
         .map(([name, size, crc]) => [String(name), Number(size), String(crc).toLowerCase().padStart(8, '0')])
-        .sort(([left], [right]) => left.localeCompare(right))
-      const actualMembers = archive.members.map((member) => [String(member.name), Number(member.size), String(member.crc32).toLowerCase().padStart(8, '0')])
+        .sort(([left], [right]) => compareStableText(left, right))
+      const actualMembers = archive.members
+        .map((member) => [String(member.name), Number(member.size), String(member.crc32).toLowerCase().padStart(8, '0')])
+        .sort(([left], [right]) => compareStableText(left, right))
       if (canonicalizeLibraryJson(actualMembers) !== canonicalizeLibraryJson(expectedMembers)) {
         throw new Error(`candidate contract mismatch for ${candidateId} at members`)
       }
