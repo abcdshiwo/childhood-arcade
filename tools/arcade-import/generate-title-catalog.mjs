@@ -454,6 +454,22 @@ const QUALIFIER_REPLACEMENTS = [
   [/\btonosama\s+2\b/giu, '殿様 2'],
   [/\bprototype\b/giu, '原型版'],
   [/\bcensored\b/giu, '审查版'],
+  [/\bDouble\s+K\.O\.\s+Turbo\b/giu, '双 KO 极速版'],
+  [/\bSuper\s+Plus\b/giu, '超级加强版'],
+  [/\bUltra\s+Plus\b/giu, '终极加强版'],
+  [/\bExtra\s+Plus\b/giu, '特别加强版'],
+  [/\bAccelerator\b/giu, '加速版'],
+  [/\bRainbow\b/giu, '彩虹版'],
+  [/\bRed\s+Wave\b/giu, '红浪版'],
+  [/\bUnique\b/giu, '独特版'],
+  [/\bHero\b/giu, '英雄版'],
+  [/\bPart\s+II\b/giu, '第二部分'],
+  [/\bPt\.II\b/giu, '第二部分'],
+  [/\bEdition\b/giu, '版'],
+  [/\bDuo\b/giu, '双人版'],
+  [/\bJet\b/giu, '喷气版'],
+  [/\bTurbo\b/giu, '极速版'],
+  [/\bPlus\b/giu, '加强版'],
   [/\bbootleg\b/giu, '盗版'],
   [/\bhack\b/giu, '改版'],
   [/\bset\s*(\d+)\b/giu, '第$1套'],
@@ -525,35 +541,40 @@ function rootForSet(setName, rowsBySet) {
     : current?.setName || setName
 }
 
-function translateBodyFallback(body) {
-  // Future rows without a reviewed family still get a readable fallback;
-  // current W165 rows are checked against the reviewed tables at generation.
+function directFamilyForRow(row) {
+  return row.runtimeParentSetName || row.datParentSetName || row.setName
+}
+
+function translateNamedBody(value) {
+  let translated = String(value)
   const replacements = [
-    [/The King of Fighters/giu, '拳皇'],
-    [/Street Fighter/giu, '街头霸王'],
-    [/Metal Slug/giu, '合金弹头'],
-    [/Dungeons & Dragons/giu, '龙与地下城'],
-    [/Marvel Super Heroes/giu, '漫威超级英雄'],
-    [/Samurai Shodown/giu, '侍魂'],
-    [/Fatal Fury/giu, '饿狼传说'],
-    [/World Heroes/giu, '世界英雄'],
-    [/Final Fight/giu, '快打旋风'],
-    [/The Punisher/giu, '惩罚者'],
-    [/Cyberbots/giu, '机甲战士'],
-    [/Willow/giu, '柳树'],
+    [/Double\s+K\.O\.\s+Turbo/giu, '双 KO 极速版'],
+    [/Super\s+Plus/giu, '超级加强版'],
+    [/Ultra\s+Plus/giu, '终极加强版'],
+    [/Extra\s+Plus/giu, '特别加强版'],
+    [/Accelerator/giu, '加速版'],
+    [/Rainbow/giu, '彩虹版'],
+    [/Red\s+Wave/giu, '红浪版'],
+    [/Unique/giu, '独特版'],
+    [/Hero/giu, '英雄版'],
+    [/Part\s+II/giu, '第二部分'],
+    [/Pt\.II/giu, '第二部分'],
+    [/Duo/giu, '双人版'],
+    [/Turbo/giu, '极速版'],
+    [/Plus/giu, '加强版'],
   ]
-  let translated = String(body)
   for (const [pattern, replacement] of replacements) translated = translated.replace(pattern, replacement)
-  return translated === body ? `街机：${body}` : translated
+  return translated
 }
 
 function buildTitleZh(row, rowsBySet) {
-  const { body, qualifiers } = splitTitle(row.title)
+  const { qualifiers } = splitTitle(row.title)
   const translationRoot = rootForSet(row.setName, rowsBySet)
-  const base = SET_BODY_OVERRIDES[row.setName]
+  const reviewedBase = SET_BODY_OVERRIDES[row.setName]
     || FAMILY_BASES[translationRoot]
     || FAMILY_BASES[row.setName]
-    || translateBodyFallback(body)
+  if (!reviewedBase) throw new Error(`missing reviewed Chinese family name for ${row.setName} (root ${translationRoot})`)
+  const base = translateNamedBody(reviewedBase)
   const translatedQualifiers = qualifiers.map(translateQualifier).filter(Boolean)
   const lowerTitle = row.title.toLocaleLowerCase('en-US')
   if (row.relationKind === 'bootleg' && !/bootleg/iu.test(lowerTitle) && !translatedQualifiers.some((value) => /盗版/u.test(value))) {
@@ -597,7 +618,7 @@ function buildRows(candidates, cores) {
       setName: candidate.setName,
       titleZh,
       titleEn: candidate.title,
-      familyRootSetName: rootForSet(candidate.setName, rowsBySet),
+      familyRootSetName: directFamilyForRow(candidate),
       datParentSetName: candidate.datParentSetName,
       relationKind: candidate.relationKind,
       source: 'domestic-common-name+dat-qualifier',
