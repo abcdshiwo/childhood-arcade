@@ -105,13 +105,14 @@ export function buildEmulatorOptions({
 }
 
 // Resolve every immutable runtime dependency from one build description. The
-// input order is the server's mount order; split clones therefore mount the
-// exact parent archive before the child archive.
+// server keeps split builds in audit-friendly parent-first mount order, but
+// Nostalgist starts only the first ROM in its array. Keep every archive while
+// moving primary archives ahead of their runtime dependencies.
 export async function resolveBuildArtifacts(build, assetFetcher = cachedFetch) {
   if (!build?.core || !Array.isArray(build.archives) || build.archives.length === 0) {
     throw new Error('immutable build has no runtime artifacts')
   }
-  const [rom, bios] = await Promise.all([
+  const [archiveContents, bios] = await Promise.all([
     Promise.all(build.archives.map(async (archive) => ({
       fileName: archive.fileName,
       fileContent: await assetFetcher(archive.url),
@@ -121,6 +122,10 @@ export async function resolveBuildArtifacts(build, assetFetcher = cachedFetch) {
       fileContent: await assetFetcher(item.url),
     }))),
   ])
+  const rom = [
+    ...archiveContents.filter((_, index) => build.archives[index].role === 'primary'),
+    ...archiveContents.filter((_, index) => build.archives[index].role !== 'primary'),
+  ]
   return {
     core: build.core.name,
     coreJsUrl: build.core.jsUrl,

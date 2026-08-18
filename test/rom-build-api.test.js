@@ -1104,6 +1104,13 @@ test('runtime helpers use exact build core URLs and preserve server mount order'
     import('../src/composables/nostalgist.js'),
   ])
   const { data } = await json('/api/rom-builds/1002', { token: 'owner-token' })
+  assert.deepEqual(
+    data.build.archives.map(({ role, fileName }) => ({ role, fileName })),
+    [
+      { role: 'parent', fileName: 'parent.zip' },
+      { role: 'primary', fileName: 'child.zip' },
+    ],
+  )
   const romMeta = { platform: 'arcade', activeBuild: data.build }
   const platform = getPlatformInfo(romMeta)
   assert.equal(platform.core, 'mame2003_plus')
@@ -1118,7 +1125,7 @@ test('runtime helpers use exact build core URLs and preserve server mount order'
     fetched.push(url)
     return new Blob([url])
   })
-  assert.deepEqual(runtime.rom.map(({ fileName }) => fileName), ['parent.zip', 'child.zip'])
+  assert.deepEqual(runtime.rom.map(({ fileName }) => fileName), ['child.zip', 'parent.zip'])
   assert.deepEqual(fetched.slice(0, 2), data.build.archives.map(({ url }) => url))
 
   const coreRequests = []

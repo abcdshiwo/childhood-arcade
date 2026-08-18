@@ -135,6 +135,23 @@ test('buildEmulatorOptions retains emulator configuration and supplied canvas', 
   assert.equal(options.retroarchConfig.rewind_enable, true)
 })
 
+test('resolveBuildArtifacts starts split builds with the primary archive while retaining its parent', async () => {
+  const runtime = await nostalgistModule.resolveBuildArtifacts({
+    archives: [
+      { role: 'parent', fileName: 'parent.zip', url: '/archives/parent.zip' },
+      { role: 'primary', fileName: 'primary.zip', url: '/archives/primary.zip' },
+    ],
+    core: {
+      name: 'fbneo',
+      jsUrl: '/cores/fbneo.js',
+      wasmUrl: '/cores/fbneo.wasm',
+      bios: [],
+    },
+  }, async (url) => new Blob([url]))
+
+  assert.deepEqual(runtime.rom.map(({ fileName }) => fileName), ['primary.zip', 'parent.zip'])
+})
+
 test('split Blob inputs have stable distinct keys so build switches reboot', () => {
   assert.equal(typeof nostalgistModule.runtimeRomKey, 'function')
   const first = [
