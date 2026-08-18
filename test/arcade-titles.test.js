@@ -62,3 +62,19 @@ test('search text contains bilingual names, aliases and runtime metadata', () =>
   assert.match(text, /plus edition/iu)
   assert.match(text, /hack/iu)
 })
+
+test('reuses a resolved title when a gallery row is searched repeatedly', () => {
+  const rom = {
+    coreName: 'fixture',
+    setNameNormalized: 'future-set',
+    title: 'legacy server title',
+  }
+  const resolved = getArcadeTitle({
+    coreName: 'fbneo',
+    setNameNormalized: 'kof97',
+    title: "The King of Fighters '97 (NGM-2320)",
+  })
+
+  assert.match(arcadeSearchText(rom, [], resolved), /拳皇 97/u)
+  assert.match(arcadeAccessibleTitle(rom, resolved), /The King of Fighters '97/u)
+})

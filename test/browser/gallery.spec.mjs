@@ -69,13 +69,15 @@ function browserHarnessPlugin(requestedThumbnails) {
         const clone = id % 5 === 0
         return {
           id,
-          title: id % 10 === 0
+          title: id === 1
+            ? "The King of Fighters '97 (NGM-2320)"
+            : id % 10 === 0
             ? '超级街机收藏版 游戏 ' + id + ' 长标题测试'
             : '街机游戏 ' + id,
           platform: 'arcade',
           hardwareFamily: id % 2 === 0 ? 'Neo Geo MVS' : 'CPS-2',
-          setName: 'bulk_' + id,
-          setNameNormalized: 'bulk_' + id,
+          setName: id === 1 ? 'kof97' : 'bulk_' + id,
+          setNameNormalized: id === 1 ? 'kof97' : 'bulk_' + id,
           variantKind: kinds[index % kinds.length],
           datParentSetName: clone ? 'bulk_' + (id - 1) : null,
           parentRomId: clone ? id - 1 : null,
@@ -185,6 +187,25 @@ test('desktop renders 620 dense cards with stable lazy 4:3 screenshot frames', a
 
   const cards = page.locator('.game-card')
   assert.equal(await cards.count(), CARD_COUNT)
+  const localizedCard = page.locator('.game-card[data-rom-id="1"]')
+  assert.equal(await localizedCard.locator('.game-title').textContent(), '拳皇 97（NGM-2320）')
+  assert.equal(
+    await localizedCard.locator('.game-title-en').textContent(),
+    "The King of Fighters '97 (NGM-2320)",
+  )
+  const subtitleLayout = await localizedCard.locator('.game-title-en').evaluate((element) => {
+    const card = element.closest('.game-card').getBoundingClientRect()
+    const bounds = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return {
+      contained: bounds.left >= card.left && bounds.right <= card.right,
+      opacity: style.opacity,
+      lineClamp: style.webkitLineClamp,
+    }
+  })
+  assert.equal(subtitleLayout.contained, true)
+  assert.equal(subtitleLayout.opacity, '0.58')
+  assert.equal(subtitleLayout.lineClamp, '2')
   const imageAttributes = await page.locator('.game-card img').evaluateAll((images) => (
     images.map((image) => ({ loading: image.loading, decoding: image.decoding }))
   ))
@@ -294,6 +315,10 @@ test('browser search and variant filters operate across the full 620-card data s
   await assertSearchCount('Neo Geo MVS', 310)
   await assertSearchCount('arcade', CARD_COUNT)
   await assertSearchCount('hack', 207)
+  await assertSearchCount('拳皇 97', 1)
+  await assertSearchCount('拳皇97', 1)
+  await assertSearchCount('kof97', 1)
+  await assertSearchCount("The King of Fighters '97", 1)
 
   await search.fill('')
   await page.waitForFunction((count) => document.querySelectorAll('.game-card').length === count, CARD_COUNT)
@@ -311,44 +336,48 @@ test('browser search and variant filters operate across the full 620-card data s
   assert.equal(await page.locator('.game-card').count(), 124)
 })
 
-test('320px layout has one contained column without horizontal overflow or overlap', async (t) => {
+test('320px and 360px layouts have one contained column without overflow or overlap', async (t) => {
   const { server, close } = await startTestServer()
   t.after(close)
   const browser = await chromium.launch({ headless: true })
   t.after(() => browser.close())
-  const page = await browser.newPage({ viewport: { width: 320, height: 780 } })
+  const page = await browser.newPage({ viewport: { width: 360, height: 780 } })
   await openGallery(page, server)
 
-  const layout = await page.evaluate(() => {
-    const cards = [...document.querySelectorAll('.game-card')].slice(0, 20)
-    const first = cards[0].getBoundingClientRect()
-    const second = cards[1].getBoundingClientRect()
-    const contained = cards.every((card) => {
-      const cardBounds = card.getBoundingClientRect()
-      return [...card.querySelectorAll('.game-title, .game-metadata, .thumbnail-frame')].every((child) => {
-        const bounds = child.getBoundingClientRect()
-        return bounds.left >= cardBounds.left - 0.5 && bounds.right <= cardBounds.right + 0.5
+  for (const width of [360, 320]) {
+    await page.setViewportSize({ width, height: 780 })
+    await page.waitForTimeout(20)
+    const layout = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.game-card')].slice(0, 20)
+      const first = cards[0].getBoundingClientRect()
+      const second = cards[1].getBoundingClientRect()
+      const contained = cards.every((card) => {
+        const cardBounds = card.getBoundingClientRect()
+        return [...card.querySelectorAll('.game-title, .game-title-en, .game-metadata, .thumbnail-frame')].every((child) => {
+          const bounds = child.getBoundingClientRect()
+          return bounds.left >= cardBounds.left - 0.5 && bounds.right <= cardBounds.right + 0.5
+        })
       })
+      return {
+        clientWidth: document.documentElement.clientWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+        cardWidth: first.width,
+        oneColumn: Math.abs(first.left - second.left) < 1 && second.top >= first.bottom,
+        contained,
+        searchWidth: document.querySelector('.search-box').getBoundingClientRect().width,
+        filterWidths: [...document.querySelectorAll('.filter-control')]
+          .map((element) => element.getBoundingClientRect().width),
+      }
     })
-    return {
-      clientWidth: document.documentElement.clientWidth,
-      scrollWidth: document.documentElement.scrollWidth,
-      cardWidth: first.width,
-      oneColumn: Math.abs(first.left - second.left) < 1 && second.top >= first.bottom,
-      contained,
-      searchWidth: document.querySelector('.search-box').getBoundingClientRect().width,
-      filterWidths: [...document.querySelectorAll('.filter-control')]
-        .map((element) => element.getBoundingClientRect().width),
-    }
-  })
 
-  assert.equal(layout.clientWidth, 320)
-  assert.equal(layout.scrollWidth, layout.clientWidth)
-  assert.equal(layout.oneColumn, true)
-  assert.equal(layout.contained, true)
-  assert.ok(layout.cardWidth <= 296)
-  assert.ok(layout.searchWidth <= 296)
-  assert.ok(layout.filterWidths.every((width) => width <= 296))
+    assert.equal(layout.clientWidth, width)
+    assert.equal(layout.scrollWidth, layout.clientWidth)
+    assert.equal(layout.oneColumn, true)
+    assert.equal(layout.contained, true)
+    assert.ok(layout.cardWidth <= width - 24)
+    assert.ok(layout.searchWidth <= width - 24)
+    assert.ok(layout.filterWidths.every((filterWidth) => filterWidth <= width - 24))
+  }
   if (process.env.GALLERY_MOBILE_SCREENSHOT_PATH) {
     await page.screenshot({ path: process.env.GALLERY_MOBILE_SCREENSHOT_PATH })
   }

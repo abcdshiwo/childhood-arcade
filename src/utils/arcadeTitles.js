@@ -40,8 +40,8 @@ export function getArcadeTitle(rom = {}) {
   }
 }
 
-export function arcadeSearchText(rom = {}, additionalFields = []) {
-  const localized = getArcadeTitle(rom)
+export function arcadeSearchText(rom = {}, additionalFields = [], resolvedTitle = null) {
+  const localized = resolvedTitle || getArcadeTitle(rom)
   const platformFields = [
     rom.setName,
     rom.setNameNormalized,
@@ -67,12 +67,11 @@ export function arcadeSearchText(rom = {}, additionalFields = []) {
   ]).join(' ').toLocaleLowerCase()
 }
 
-export function arcadeAccessibleTitle(rom = {}) {
-  const localized = getArcadeTitle(rom)
+export function arcadeAccessibleTitle(rom = {}, resolvedTitle = null) {
+  const localized = resolvedTitle || getArcadeTitle(rom)
   const setName = text(rom.setName || rom.setNameNormalized)
   const names = localized.showEnglish
     ? `${localized.titleZh}（${localized.titleEn}）`
     : localized.titleZh
   return setName ? `${names}（${setName}）` : names
 }
-

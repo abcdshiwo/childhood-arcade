@@ -70,7 +70,7 @@ function galleryRows() {
   return [
     makeRom({
       id: 1,
-      title: '拳皇 97',
+      title: "The King of Fighters '97 (NGM-2320)",
       setName: 'kof97',
       hardwareFamily: 'Neo Geo MVS',
       versionLabel: 'Original',
@@ -194,6 +194,39 @@ describe('CRT gallery', () => {
     await hack.trigger('click')
     expect(harness.routerPush).toHaveBeenCalledWith('/play/2')
     expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
+  })
+
+  test('renders catalog Chinese titles with searchable exact English subtitles', async () => {
+    const wrapper = await mountGallery()
+    const kof = card(wrapper, 1)
+
+    expect(kof.get('.game-title').text()).toContain('拳皇 97')
+    expect(kof.get('.game-title-en').text()).toBe("The King of Fighters '97 (NGM-2320)")
+    expect(kof.attributes('aria-label')).toContain('拳皇 97')
+    expect(kof.attributes('aria-label')).toContain("The King of Fighters '97")
+    expect(kof.get('img').attributes('alt')).toContain('拳皇 97')
+    expect(kof.get('img').attributes('alt')).toContain("The King of Fighters '97")
+    expect(kof.get('.favorite-button').attributes('aria-label')).toContain('拳皇 97')
+    expect(kof.get('.favorite-button').attributes('aria-label')).toContain("The King of Fighters '97")
+    expect(kof.get('.favorite-button').attributes('title')).toContain('拳皇 97')
+    expect(kof.get('.favorite-button').attributes('title')).toContain("The King of Fighters '97")
+
+    const search = wrapper.get('input[aria-label="搜索游戏"]')
+    for (const term of ['拳皇 97', '拳皇97', "The King of Fighters '97", 'kof97']) {
+      await search.setValue(term)
+      expect(wrapper.findAll('.game-card')).toHaveLength(1)
+      expect(wrapper.get('.game-card').attributes('data-rom-id')).toBe('1')
+    }
+  })
+
+  test('falls back to one title without rendering a duplicate English subtitle', async () => {
+    const wrapper = await mountGallery([
+      makeRom({ id: 77, title: 'Future Test ROM', coreName: 'fixture', setName: 'future-set' }),
+    ])
+
+    const cardWrapper = card(wrapper, 77)
+    expect(cardWrapper.get('.game-title').text()).toBe('Future Test ROM')
+    expect(cardWrapper.find('.game-title-en').exists()).toBe(false)
   })
 
   test('marks experimental catalog builds without changing their ROM variant label', async () => {

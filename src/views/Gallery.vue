@@ -146,7 +146,7 @@
               @error="onThumbnailError(rom.id)"
             />
             <div v-else class="thumbnail-fallback" aria-hidden="true">
-              <span>{{ titleInitial(rom.title) }}</span>
+              <span>{{ titleInitial(titleFor(rom).titleZh) }}</span>
               <small>NO SIGNAL</small>
             </div>
 
@@ -162,8 +162,8 @@
               type="button"
               class="favorite-button"
               :class="{ active: rom.isFavorite }"
-              :title="rom.isFavorite ? '取消收藏' : '收藏'"
-              :aria-label="rom.isFavorite ? `取消收藏 ${rom.title}` : `收藏 ${rom.title}`"
+              :title="`${rom.isFavorite ? '取消收藏' : '收藏'} ${arcadeAccessibleTitle(rom, titleFor(rom))}`"
+              :aria-label="rom.isFavorite ? `取消收藏 ${arcadeAccessibleTitle(rom, titleFor(rom))}` : `收藏 ${arcadeAccessibleTitle(rom, titleFor(rom))}`"
               :aria-pressed="Boolean(rom.isFavorite)"
               @click.stop="toggleFavorite(rom)"
               @keydown.stop
@@ -176,7 +176,8 @@
 
           <div class="game-card-body">
             <div class="game-card-heading">
-              <h2 class="game-title">{{ rom.title }}</h2>
+              <h2 class="game-title">{{ titleFor(rom).titleZh }}</h2>
+              <p v-if="titleFor(rom).showEnglish" class="game-title-en">{{ titleFor(rom).titleEn }}</p>
               <div v-if="variantBadges(rom).length" class="variant-badges" aria-label="版本标记">
                 <span
                   v-for="badge in variantBadges(rom)"
@@ -221,12 +222,18 @@ import { api } from '../api/client.js'
 import { useAuth } from '../composables/useAuth.js'
 import { useSettings } from '../composables/useSettings.js'
 import { getPlatform, tabGroups } from '../constants/platforms.js'
+import { arcadeAccessibleTitle, arcadeSearchText, getArcadeTitle } from '../utils/arcadeTitles.js'
 
 const router = useRouter()
 const { isAuthed } = useAuth()
 const { settings } = useSettings()
 
 const roms = ref([])
+const localizedTitles = computed(() => {
+  const cache = new WeakMap()
+  for (const rom of roms.value) cache.set(rom, getArcadeTitle(rom))
+  return cache
+})
 const loading = ref(true)
 const query = ref('')
 const activeTab = ref('all')
@@ -281,24 +288,12 @@ function matchesVariant(rom, value) {
 
 function searchableText(rom) {
   const platform = getPlatform(rom.platform)
-  return [
-    rom.title,
-    rom.setName,
-    rom.setNameNormalized,
-    rom.versionLabel,
-    rom.coreName,
-    rom.coreVersion,
-    rom.platform,
-    rom.hardwareFamily,
-    rom.variantKind,
-    rom.datParentSetName,
-    rom.familyRootSetName,
-    rom.thumbnailSourceSetName,
+  return arcadeSearchText(rom, [
     platform.displayName,
     platform.shortLabel,
     platform.manufacturer,
     isClone(rom) ? 'clone' : null,
-  ].filter(Boolean).join(' ').toLocaleLowerCase()
+  ], titleFor(rom))
 }
 
 const filtered = computed(() => {
@@ -372,8 +367,7 @@ function thumbnailEvidenceClass(rom) {
 }
 
 function thumbnailAlt(rom) {
-  const setName = rom.setName || rom.setNameNormalized
-  return `${rom.title}${setName ? ` (${setName})` : ''} 游戏截图`
+  return `${arcadeAccessibleTitle(rom, titleFor(rom))} 游戏截图`
 }
 
 function titleInitial(title) {
@@ -389,7 +383,11 @@ function hardwareDisplay(rom) {
 }
 
 function cardAriaLabel(rom) {
-  return `游玩 ${rom.title}，${rom.versionLabel || '未标注'}，${rom.setName || rom.setNameNormalized || ''}`
+  return `游玩 ${arcadeAccessibleTitle(rom, titleFor(rom))}，${rom.versionLabel || '未标注'}`
+}
+
+function titleFor(rom) {
+  return localizedTitles.value.get(rom) || getArcadeTitle(rom)
 }
 
 async function toggleFavorite(rom) {
@@ -887,6 +885,22 @@ function onCardKeydown(event, rom) {
   font-size: 14px;
   font-weight: 720;
   line-height: 1.35;
+  text-overflow: ellipsis;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.game-title-en {
+  display: -webkit-box;
+  min-height: 30px;
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: var(--arcade-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.45;
+  opacity: 0.58;
   text-overflow: ellipsis;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
