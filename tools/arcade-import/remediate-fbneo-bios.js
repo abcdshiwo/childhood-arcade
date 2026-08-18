@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync } from 'node:fs'
+import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -299,7 +299,7 @@ export function planFbneoBiosRemediation(sqlite, options) {
     schemaVersion: 1,
     kind: 'fbneo-bios-remediation-v1',
     originBatchId,
-    remediationBatchId,
+    batchId: remediationBatchId,
     sourceCoreFingerprint: source.artifact_fingerprint,
     targetCoreFingerprint: target.artifact_fingerprint,
     biosManifestSha256: target.bios_manifest_sha256,
@@ -363,7 +363,7 @@ function assertCompletedRemediation(sqlite, plan) {
     SELECT b.* FROM batch_build_refs ref
     JOIN rom_builds b ON b.id = ref.rom_build_id
     WHERE ref.import_batch_id = ?
-  `).all(plan.manifest.remediationBatchId)
+  `).all(plan.manifest.batchId)
   if (refs.length !== plan.builds.length) {
     throw new Error('existing remediation batch has incomplete build references')
   }
@@ -374,10 +374,9 @@ function assertCompletedRemediation(sqlite, plan) {
   }
 }
 
-export function applyFbneoBiosRemediation(sqlite, options) {
-  const plan = planFbneoBiosRemediation(sqlite, options)
+function applyFbneoBiosRemediationPlan(sqlite, plan) {
   const existingBatch = sqlite.prepare('SELECT * FROM import_batches WHERE id = ?')
-    .get(plan.manifest.remediationBatchId)
+    .get(plan.manifest.batchId)
   if (existingBatch) {
     if (
       existingBatch.manifest_sha256 !== plan.manifestSha256 ||
@@ -388,7 +387,7 @@ export function applyFbneoBiosRemediation(sqlite, options) {
     assertCompletedRemediation(sqlite, plan)
     return {
       kind: plan.manifest.kind,
-      batchId: plan.manifest.remediationBatchId,
+      batchId: plan.manifest.batchId,
       manifestSha256: plan.manifestSha256,
       remediatedBuilds: plan.builds.length,
       noop: true,
@@ -402,16 +401,16 @@ export function applyFbneoBiosRemediation(sqlite, options) {
          planned_count, actual_count, total_bytes, status)
       VALUES (?, ?, ?, ?, ?, 0, 0, 'staged')
     `).run(
-      plan.manifest.remediationBatchId,
+      plan.manifest.batchId,
       plan.origin.owner_user_id,
       plan.origin.cold_source_sha256,
       plan.manifestSha256,
       plan.builds.length,
     )
-    const writeOperation = operationWriter(sqlite, plan.manifest.remediationBatchId)
+    const writeOperation = operationWriter(sqlite, plan.manifest.batchId)
     writeOperation(
-      'create', 'import_batch', plan.manifest.remediationBatchId, null,
-      sqlite.prepare('SELECT * FROM import_batches WHERE id = ?').get(plan.manifest.remediationBatchId),
+      'create', 'import_batch', plan.manifest.batchId, null,
+      sqlite.prepare('SELECT * FROM import_batches WHERE id = ?').get(plan.manifest.batchId),
     )
 
     const replacementBySourceId = new Map()
@@ -449,41 +448,43 @@ export function applyFbneoBiosRemediation(sqlite, options) {
       replacementBySourceId.set(planned.sourceBuildId, replacement)
 
       sqlite.prepare('INSERT INTO batch_build_refs (import_batch_id, rom_build_id) VALUES (?, ?)')
-        .run(plan.manifest.remediationBatchId, replacement.id)
+        .run(plan.manifest.batchId, replacement.id)
       writeOperation(
-        'create', 'batch_build_ref', `${plan.manifest.remediationBatchId}:${replacement.id}`,
-        null, { import_batch_id: plan.manifest.remediationBatchId, rom_build_id: replacement.id },
+        'create', 'batch_build_ref', `${plan.manifest.batchId}:${replacement.id}`,
+        null, { import_batch_id: plan.manifest.batchId, rom_build_id: replacement.id },
       )
 
       const rom = sqlite.prepare('SELECT * FROM roms WHERE id = ?').get(planned.romId)
-      if (rom.active_build_id === planned.sourceBuildId) {
-        const changed = sqlite.prepare('UPDATE roms SET active_build_id = ? WHERE id = ? AND active_build_id = ?')
-          .run(replacement.id, planned.romId, planned.sourceBuildId)
-        if (changed.changes !== 1) throw new Error(`ROM ${planned.romId} active build changed concurrently`)
-        const updated = sqlite.prepare('SELECT * FROM roms WHERE id = ?').get(planned.romId)
-        writeOperation('update', 'rom', planned.romId, rom, updated)
-        promoted += 1
+      if (rom.active_build_id !== planned.sourceBuildId) {
+        throw new Error(`ROM ${planned.romId} source build is no longer active`)
       }
+      const changed = sqlite.prepare('UPDATE roms SET active_build_id = ? WHERE id = ? AND active_build_id = ?')
+        .run(replacement.id, planned.romId, planned.sourceBuildId)
+      if (changed.changes !== 1) throw new Error(`ROM ${planned.romId} active build changed concurrently`)
+      const updated = sqlite.prepare('SELECT * FROM roms WHERE id = ?').get(planned.romId)
+      writeOperation('update', 'rom', planned.romId, rom, updated)
+      promoted += 1
     }
 
     const staged = sqlite.prepare('SELECT * FROM import_batches WHERE id = ?')
-      .get(plan.manifest.remediationBatchId)
+      .get(plan.manifest.batchId)
     const changed = sqlite.prepare(`
       UPDATE import_batches
       SET actual_count = ?, status = 'committed_private'
       WHERE id = ? AND manifest_sha256 = ? AND status = 'staged'
-    `).run(plan.builds.length, plan.manifest.remediationBatchId, plan.manifestSha256)
+    `).run(plan.builds.length, plan.manifest.batchId, plan.manifestSha256)
     if (changed.changes !== 1) throw new Error('remediation batch status compare-and-swap failed')
     const committed = sqlite.prepare('SELECT * FROM import_batches WHERE id = ?')
-      .get(plan.manifest.remediationBatchId)
-    writeOperation('update', 'import_batch', plan.manifest.remediationBatchId, staged, committed)
+      .get(plan.manifest.batchId)
+    if (promoted !== plan.builds.length) throw new Error('FBNeo BIOS remediation did not promote every planned build')
+    writeOperation('update', 'import_batch', plan.manifest.batchId, staged, committed)
     return { promoted }
   })
 
   const applied = execute.immediate()
   return {
     kind: plan.manifest.kind,
-    batchId: plan.manifest.remediationBatchId,
+    batchId: plan.manifest.batchId,
     manifestSha256: plan.manifestSha256,
     remediatedBuilds: plan.builds.length,
     promotedBuilds: applied.promoted,
@@ -491,23 +492,55 @@ export function applyFbneoBiosRemediation(sqlite, options) {
   }
 }
 
-export function remediateFbneoBios({ dbPath, apply = false, ...options }) {
+export function applyFbneoBiosRemediation(sqlite, options) {
+  return applyFbneoBiosRemediationPlan(sqlite, planFbneoBiosRemediation(sqlite, options))
+}
+
+function persistRollbackManifest(path, plan) {
+  const target = resolve(requiredString(path, 'manifest output path'))
+  const payload = `${canonicalizeLibraryJson({
+    ...plan.manifest,
+    manifestSha256: plan.manifestSha256,
+  })}\n`
+  try {
+    writeFileSync(target, payload, { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+  } catch (error) {
+    if (error?.code !== 'EEXIST' || readFileSync(target, 'utf8') !== payload) {
+      throw new Error(`rollback manifest output already exists with different content: ${target}`, {
+        cause: error,
+      })
+    }
+  }
+  return target
+}
+
+export function remediateFbneoBios({
+  dbPath,
+  apply = false,
+  manifestOutputPath = null,
+  ...options
+}) {
   const sqlite = new Database(resolve(requiredString(dbPath, 'database path')), {
     readonly: !apply,
     fileMustExist: true,
   })
   try {
     sqlite.pragma('foreign_keys = ON')
-    if (apply) return applyFbneoBiosRemediation(sqlite, options)
     const plan = planFbneoBiosRemediation(sqlite, options)
-    return {
+    const rollbackManifestPath = manifestOutputPath === null
+      ? null
+      : persistRollbackManifest(manifestOutputPath, plan)
+    const result = apply ? applyFbneoBiosRemediationPlan(sqlite, plan) : {
       kind: plan.manifest.kind,
-      batchId: plan.manifest.remediationBatchId,
+      batchId: plan.manifest.batchId,
       manifestSha256: plan.manifestSha256,
       remediatedBuilds: plan.builds.length,
       noop: false,
       dryRun: true,
     }
+    return rollbackManifestPath === null
+      ? result
+      : { ...result, rollbackManifestPath }
   } finally {
     sqlite.close()
   }
@@ -523,6 +556,7 @@ function parseArgs(argv) {
     ['--source-core', 'sourceCoreFingerprint'],
     ['--target-core', 'targetCoreFingerprint'],
     ['--expected-build-count', 'expectedBuildCount'],
+    ['--manifest-output', 'manifestOutputPath'],
   ])
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]

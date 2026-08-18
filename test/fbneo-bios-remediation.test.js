@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -14,7 +14,10 @@ import {
 } from '../server/services/library-service.js'
 import {
   applyFbneoBiosRemediation,
+  planFbneoBiosRemediation,
+  remediateFbneoBios,
 } from '../tools/arcade-import/remediate-fbneo-bios.js'
+import { rollbackBatch } from '../tools/arcade-import/rollback_batch.js'
 
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex')
@@ -83,13 +86,14 @@ function fixture(t) {
     CREATE TABLE import_batches (
       id TEXT PRIMARY KEY, owner_user_id INTEGER NOT NULL, cold_source_sha256 TEXT NOT NULL,
       manifest_sha256 TEXT NOT NULL, planned_count INTEGER NOT NULL, actual_count INTEGER NOT NULL,
-      total_bytes INTEGER NOT NULL, status TEXT NOT NULL
+      total_bytes INTEGER NOT NULL, status TEXT NOT NULL, created_at INTEGER,
+      updated_at INTEGER, published_at INTEGER, rolled_back_at INTEGER
     );
     CREATE TABLE batch_build_refs (import_batch_id TEXT NOT NULL, rom_build_id INTEGER NOT NULL, PRIMARY KEY (import_batch_id, rom_build_id));
     CREATE TABLE import_operations (
       id INTEGER PRIMARY KEY AUTOINCREMENT, import_batch_id TEXT NOT NULL, sequence INTEGER NOT NULL,
       operation_kind TEXT NOT NULL, entity_type TEXT NOT NULL, entity_key TEXT NOT NULL,
-      before_json TEXT, after_json TEXT, UNIQUE (import_batch_id, sequence)
+      before_json TEXT, after_json TEXT, reverted_at INTEGER, UNIQUE (import_batch_id, sequence)
     );
     CREATE TABLE rooms (id INTEGER PRIMARY KEY, rom_build_id INTEGER NOT NULL, closed_at INTEGER);
   `)
@@ -130,7 +134,12 @@ function fixture(t) {
       },
     }),
   )
-  db.prepare('INSERT INTO import_batches VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+  db.prepare(`
+    INSERT INTO import_batches
+      (id, owner_user_id, cold_source_sha256, manifest_sha256,
+       planned_count, actual_count, total_bytes, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
     'w165-source', 1, 'a'.repeat(64), 'b'.repeat(64), 2, 2, 123, 'committed_private',
   )
   db.prepare('INSERT INTO roms (id, set_name_normalized, active_build_id) VALUES (?, ?, ?)').run(10, 'parent', 100)
@@ -243,5 +252,72 @@ test('FBNeo BIOS remediation rejects corrupted source archive bytes before promo
     targetCoreFingerprint: f.targetFingerprint,
     expectedBuildCount: 2,
   }), /build 101 ROM archive.*content/i)
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM import_batches WHERE id = ?').get('w165-fbneo-bios-v1').n, 0)
+})
+
+test('FBNeo BIOS remediation refuses to partially promote builds that are no longer active', (t) => {
+  const f = fixture(t)
+  f.db.prepare('UPDATE roms SET active_build_id = NULL WHERE id = 11').run()
+
+  assert.throws(() => applyFbneoBiosRemediation(f.db, {
+    assetRoot: f.assetRoot,
+    originBatchId: 'w165-source',
+    remediationBatchId: 'w165-fbneo-bios-v1',
+    sourceCoreFingerprint: f.sourceFingerprint,
+    targetCoreFingerprint: f.targetFingerprint,
+    expectedBuildCount: 2,
+  }), /source build is no longer active/i)
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM import_batches WHERE id = ?').get('w165-fbneo-bios-v1').n, 0)
+})
+
+test('FBNeo BIOS remediation records a manifest that the rollback workflow can reverse', (t) => {
+  const f = fixture(t)
+  const options = {
+    assetRoot: f.assetRoot,
+    originBatchId: 'w165-source',
+    remediationBatchId: 'w165-fbneo-bios-v1',
+    sourceCoreFingerprint: f.sourceFingerprint,
+    targetCoreFingerprint: f.targetFingerprint,
+    expectedBuildCount: 2,
+  }
+  const plan = planFbneoBiosRemediation(f.db, options)
+  assert.equal(plan.manifest.batchId, options.remediationBatchId)
+  const manifestPath = join(f.assetRoot, 'fbneo-bios-remediation-manifest.json')
+  writeFileSync(manifestPath, JSON.stringify({ ...plan.manifest, manifestSha256: plan.manifestSha256 }))
+
+  applyFbneoBiosRemediation(f.db, options)
+  const rollback = rollbackBatch({
+    dbPath: f.db.name,
+    assetRoot: f.assetRoot,
+    manifestPath,
+    batchId: options.remediationBatchId,
+    apply: true,
+  })
+
+  assert.equal(rollback.status, 'rolled_back')
+  assert.equal(f.db.prepare('SELECT active_build_id FROM roms WHERE id = 10').get().active_build_id, 100)
+  assert.equal(f.db.prepare('SELECT active_build_id FROM roms WHERE id = 11').get().active_build_id, 101)
+  assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM rom_builds WHERE core_artifact_id = 1').get().n, 0)
+  assert.equal(f.db.prepare('SELECT status FROM import_batches WHERE id = ?').get(options.remediationBatchId).status, 'rolled_back')
+})
+
+test('FBNeo BIOS remediation persists a hash-verified rollback manifest with its dry run', (t) => {
+  const f = fixture(t)
+  const manifestOutputPath = join(f.assetRoot, 'fbneo-bios-remediation-manifest.json')
+  const result = remediateFbneoBios({
+    dbPath: f.db.name,
+    assetRoot: f.assetRoot,
+    originBatchId: 'w165-source',
+    remediationBatchId: 'w165-fbneo-bios-v1',
+    sourceCoreFingerprint: f.sourceFingerprint,
+    targetCoreFingerprint: f.targetFingerprint,
+    expectedBuildCount: 2,
+    manifestOutputPath,
+  })
+  const manifest = JSON.parse(readFileSync(manifestOutputPath, 'utf8'))
+
+  assert.equal(result.rollbackManifestPath, manifestOutputPath)
+  assert.equal(manifest.batchId, 'w165-fbneo-bios-v1')
+  assert.equal(manifest.manifestSha256, result.manifestSha256)
   assert.equal(f.db.prepare('SELECT COUNT(*) AS n FROM import_batches WHERE id = ?').get('w165-fbneo-bios-v1').n, 0)
 })

@@ -209,6 +209,8 @@ function reverseOperation(sqlite, operation, filesToRemove, preserved) {
         sqlite.prepare('DELETE FROM roms WHERE id = ?').run(after.id)
       }
       return
+    case 'import_batch':
+      return
     case 'asset': {
       const row = sqlite.prepare('SELECT * FROM assets WHERE sha256 = ?').get(after.sha256)
       if (!row) return
