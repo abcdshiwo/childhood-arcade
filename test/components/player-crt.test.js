@@ -263,6 +263,27 @@ afterEach(() => {
 })
 
 describe('Player arcade CRT behavior', () => {
+  test('shows the catalog Chinese title and exact English title in the player toolbar', async () => {
+    const rom = makeRom()
+    rom.title = "The King of Fighters '97 (NGM-2320)"
+    rom.coreName = 'fbneo'
+    rom.setName = 'kof97'
+    rom.setNameNormalized = 'kof97'
+    harness.api.romsMine.mockResolvedValue({ roms: [rom] })
+    harness.api.romsPublic.mockResolvedValue({ roms: [] })
+    harness.api.romVersions.mockResolvedValue({ versions: [rom] })
+    harness.resolveBuildArtifacts.mockResolvedValue({
+      rom: [{ fileName: 'game.zip', fileContent: new Uint8Array([1, 2, 3]) }],
+      bios: [],
+    })
+
+    const wrapper = mountPlayer()
+    await settlePlayer()
+
+    expect(wrapper.get('.bar-title').text()).toBe('拳皇 97（NGM-2320）')
+    expect(wrapper.get('.bar-title-en').text()).toBe("The King of Fighters '97 (NGM-2320)")
+  })
+
   test('keeps the toolbar mounted while metadata is loading and after a load error', async () => {
     const mine = deferred()
     harness.api.romsMine.mockReturnValue(mine.promise)

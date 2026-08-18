@@ -33,7 +33,12 @@
             <div class="row-meta">
               <span class="meta-item">
                 <span class="pc-dot" :style="{ background: platformColor(r.romPlatform) }"></span>
-                {{ platformLabel(r.romPlatform) }} · {{ r.romTitle }} · {{ r.romVersionLabel || '原版' }} · {{ r.coreName }}
+                <span>{{ platformLabel(r.romPlatform) }} ·</span>
+                <span class="room-game-title-wrap">
+                  <span class="room-game-title">{{ roomTitle(r).titleZh }}</span>
+                  <span v-if="roomTitle(r).showEnglish" class="room-game-title-en">{{ roomTitle(r).titleEn }}</span>
+                </span>
+                <span>· {{ r.romVersionLabel || '原版' }} · {{ r.romCoreName || r.coreName }}</span>
               </span>
               <code class="meta-code">{{ r.code }}</code>
             </div>
@@ -80,7 +85,12 @@
             <div class="row-meta">
               <span class="meta-item">
                 <span class="pc-dot" :style="{ background: platformColor(r.romPlatform) }"></span>
-                {{ platformLabel(r.romPlatform) }} · {{ r.romTitle }} · {{ r.romVersionLabel || '原版' }} · {{ r.coreName }}
+                <span>{{ platformLabel(r.romPlatform) }} ·</span>
+                <span class="room-game-title-wrap">
+                  <span class="room-game-title">{{ roomTitle(r).titleZh }}</span>
+                  <span v-if="roomTitle(r).showEnglish" class="room-game-title-en">{{ roomTitle(r).titleEn }}</span>
+                </span>
+                <span>· {{ r.romVersionLabel || '原版' }} · {{ r.romCoreName || r.coreName }}</span>
               </span>
               <span class="meta-item">@{{ r.hostUsername }}</span>
               <code class="meta-code">{{ r.code }}</code>
@@ -107,6 +117,7 @@ import { useRouter } from 'vue-router'
 import { api } from '../api/client.js'
 import { useAuth } from '../composables/useAuth.js'
 import { getPlatform } from '../constants/platforms.js'
+import { getArcadeTitle } from '../utils/arcadeTitles.js'
 import CreateRoomDialog from '../components/CreateRoomDialog.vue'
 import JoinRoomDialog from '../components/JoinRoomDialog.vue'
 import EditRoomDialog from '../components/EditRoomDialog.vue'
@@ -174,6 +185,18 @@ function onEdited(room) {
 
 function platformColor(p) { return getPlatform(p).color }
 function platformLabel(p) { return getPlatform(p).shortLabel }
+function roomTitle(room) {
+  return getArcadeTitle({
+    coreName: room?.romCoreName || room?.coreName,
+    setName: room?.romSetName,
+    setNameNormalized: room?.romSetName,
+    title: room?.romTitle,
+    originalTitle: room?.romTitle,
+    versionLabel: room?.romVersionLabel,
+    variantKind: room?.romVariantKind,
+    platform: room?.romPlatform,
+  })
+}
 </script>
 
 <style scoped>
@@ -240,6 +263,32 @@ function platformLabel(p) { return getPlatform(p).shortLabel }
   flex-wrap: wrap;
 }
 .meta-item { display: inline-flex; align-items: center; gap: 6px; }
+.room-game-title-wrap {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+  max-width: min(42vw, 360px);
+  line-height: 1.25;
+}
+.room-game-title {
+  color: var(--text-secondary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.room-game-title-en {
+  color: var(--text-tertiary);
+  opacity: 0.58;
+  font-size: 11px;
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .pc-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .meta-code {
   font-family: var(--font-mono);
@@ -276,5 +325,6 @@ function platformLabel(p) { return getPlatform(p).shortLabel }
   .page-head-actions { flex-direction: row; gap: 8px; }
   .row { flex-direction: column; align-items: stretch; }
   .row-actions { justify-content: flex-start; }
+  .room-game-title-wrap { max-width: min(72vw, 360px); }
 }
 </style>

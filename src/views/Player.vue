@@ -2,6 +2,7 @@
   <div ref="playerRef" class="player-page">
     <GameOverlay
       :title="displayName"
+      :title-en="displayNameEn"
       :platform="platformInfo"
       :core-name="coreDisplayName[platformInfo.core] || platformInfo.core"
       :can-save="isAuthed && !isGuestMode"
@@ -111,6 +112,7 @@
             INSERT COIN
           </p>
           <p class="emu-loading-game">{{ displayName }}</p>
+          <p v-if="displayNameEn" class="emu-loading-game-en">{{ displayNameEn }}</p>
           <p class="emu-loading-sub">{{ loadingSub }}</p>
           <button v-if="loadingSlow" class="btn btn-sm emu-loading-retry" @click="reloadPage">长时间未加载，点此刷新</button>
         </div>
@@ -158,6 +160,7 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, reactive, s
 import { useRouter, useRoute } from 'vue-router'
 import { api } from '../api/client.js'
 import { getPlatformInfo } from '../data/config.js'
+import { getArcadeTitle } from '../utils/arcadeTitles.js'
 import {
   createArtifactGenerationGuard,
   resolveBuildArtifacts,
@@ -407,7 +410,23 @@ function onBooted() {
   if (slowTimer) { clearTimeout(slowTimer); slowTimer = null }
 }
 function reloadPage() { window.location.reload() }
-const displayName = computed(() => romMeta.value?.title || (isGuestMode.value ? '连接中…' : '加载中…'))
+const localizedRom = computed(() => {
+  const meta = romMeta.value
+  if (!meta) return null
+  const metadata = meta.metadata && typeof meta.metadata === 'object' ? meta.metadata : {}
+  return {
+    ...metadata,
+    ...meta,
+    coreName: meta.coreName || metadata.coreName || meta.activeBuild?.core?.name,
+    setName: meta.setName || metadata.setName || meta.setNameNormalized,
+    setNameNormalized: meta.setNameNormalized || metadata.setNameNormalized || meta.setName,
+    title: meta.title || metadata.title,
+    originalTitle: meta.originalTitle || metadata.originalTitle,
+  }
+})
+const localizedTitle = computed(() => localizedRom.value ? getArcadeTitle(localizedRom.value) : null)
+const displayName = computed(() => localizedTitle.value?.titleZh || (isGuestMode.value ? '连接中…' : '加载中…'))
+const displayNameEn = computed(() => localizedTitle.value?.showEnglish ? localizedTitle.value.titleEn : '')
 watch(() => signalMe.value?.isHost, (isHost, wasHost) => {
   if (isHost !== wasHost) {
     releaseMappedPulses()
@@ -1092,6 +1111,16 @@ onBeforeUnmount(() => {
   font-weight: 600;
   letter-spacing: -0.01em;
   max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.emu-loading-game-en {
+  margin: -2px 0 0;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 11px;
+  line-height: 1.3;
+  max-width: min(90vw, 420px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

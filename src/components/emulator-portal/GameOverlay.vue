@@ -32,7 +32,10 @@
 
     <div class="bar-center">
       <span class="bar-badge" :style="{ background: platform.color }">{{ platform.label }}</span>
-      <h2 class="bar-title">{{ title }}</h2>
+      <div class="bar-title-wrap">
+        <h2 class="bar-title">{{ title }}</h2>
+        <span v-if="titleEn" class="bar-title-en">{{ titleEn }}</span>
+      </div>
       <span v-if="coreName" class="bar-core">{{ coreName }}</span>
       <span class="playing-led" title="游戏运行中">
         <span class="led-dot"></span>PLAYING
@@ -73,6 +76,7 @@
 <script setup>
 defineProps({
   title: String,
+  titleEn: { type: String, default: '' },
   platform: { type: Object, required: true },
   coreName: String,
   canSave: { type: Boolean, default: true },
@@ -209,6 +213,27 @@ const canFullscreen = hasFs && !isIOS
   cursor: not-allowed;
   transform: none;
 }
+.bar-title-wrap {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+.bar-title-en {
+  max-width: 100%;
+  color: var(--b-muted);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: center;
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
 .bar-btn-accent {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   border-color: color-mix(in srgb, var(--accent) 40%, transparent);
@@ -232,6 +257,7 @@ const canFullscreen = hasFs && !isIOS
   .bar-btn-label { display: none; }
   .bar-btn { padding: 6px; min-width: 36px; min-height: 36px; }
   .bar-title { font-size: 13px; }
+  .bar-title-wrap { flex: 1; }
   .bar-core { display: none; }
   .player-bar { padding: 8px 10px; }
 }
@@ -251,6 +277,7 @@ const canFullscreen = hasFs && !isIOS
   .bar-center { gap: 4px; }
   .bar-badge { display: none; }
   .bar-title { font-size: 12px; }
+  .bar-title-en { font-size: 9px; }
   .bar-btn { min-width: 30px; min-height: 34px; padding: 4px; }
 }
 </style>
