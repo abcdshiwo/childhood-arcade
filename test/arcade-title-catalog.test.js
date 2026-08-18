@@ -15,6 +15,7 @@ const PROJECT_ROOT = resolve(import.meta.dirname, '..')
 const CANDIDATES_PATH = resolve(PROJECT_ROOT, 'tools/arcade-import/contracts/candidates.json')
 const CORES_PATH = resolve(PROJECT_ROOT, 'tools/arcade-import/contracts/cores.json')
 const EXPECTED_CANDIDATES_SHA256 = '3046a5653210d3b15757db3cecc16a77b79cc2374ebf2aedfa12217e271a3042'
+const EXPECTED_CATALOG_SHA256 = 'fc98a6b8b49de540698b8a907be1bcb6d8e65c2430f599752ee96d8e41e4d856'
 
 function readJson(path) {
   return JSON.parse(readFileSync(path, 'utf8'))
@@ -44,6 +45,7 @@ test('covers all frozen arcade candidates with exact English source titles', () 
 
   assert.equal(sha256(readFileSync(CANDIDATES_PATH)), EXPECTED_CANDIDATES_SHA256)
   assert.equal(ARCADE_TITLE_CANDIDATES_SHA256, EXPECTED_CANDIDATES_SHA256)
+  assert.equal(ARCADE_TITLE_CATALOG_SHA256, EXPECTED_CATALOG_SHA256)
   assert.equal(ARCADE_TITLE_ROWS.length, 656)
   assert.equal(ARCADE_TITLE_BY_KEY.size, 656)
   assert.equal(new Set(ARCADE_TITLE_ROWS.map((row) => row.key)).size, 656)

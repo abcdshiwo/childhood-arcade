@@ -567,6 +567,19 @@ function translateNamedBody(value) {
   return translated
 }
 
+function comparableText(value) {
+  return String(value)
+    .replace(/[\s!！:：,，.。/'’-]/gu, '')
+    .toLocaleLowerCase('en-US')
+}
+
+function removeRepeatedBodyQualifier(value, base) {
+  const parts = String(value).split('，')
+  const first = comparableText(parts[0])
+  if (first && comparableText(base).includes(first)) parts.shift()
+  return parts.join('，')
+}
+
 function buildTitleZh(row, rowsBySet) {
   const { qualifiers } = splitTitle(row.title)
   const translationRoot = rootForSet(row.setName, rowsBySet)
@@ -575,7 +588,10 @@ function buildTitleZh(row, rowsBySet) {
     || FAMILY_BASES[row.setName]
   if (!reviewedBase) throw new Error(`missing reviewed Chinese family name for ${row.setName} (root ${translationRoot})`)
   const base = translateNamedBody(reviewedBase)
-  const translatedQualifiers = qualifiers.map(translateQualifier).filter(Boolean)
+  const translatedQualifiers = qualifiers
+    .map(translateQualifier)
+    .map((value) => removeRepeatedBodyQualifier(value, base))
+    .filter(Boolean)
   const lowerTitle = row.title.toLocaleLowerCase('en-US')
   if (row.relationKind === 'bootleg' && !/bootleg/iu.test(lowerTitle) && !translatedQualifiers.some((value) => /盗版/u.test(value))) {
     translatedQualifiers.push('盗版')

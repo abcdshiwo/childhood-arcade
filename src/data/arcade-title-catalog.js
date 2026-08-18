@@ -2,7 +2,7 @@
 // Do not edit manually; update the reviewed tables in the generator instead.
 
 export const ARCADE_TITLE_CANDIDATES_SHA256 = "3046a5653210d3b15757db3cecc16a77b79cc2374ebf2aedfa12217e271a3042"
-export const ARCADE_TITLE_CATALOG_SHA256 = "4da10e3d04e9e5a6b38a1a155ae96a12c2c0e88e5d952faf01c8ba66fa684c2d"
+export const ARCADE_TITLE_CATALOG_SHA256 = "fc98a6b8b49de540698b8a907be1bcb6d8e65c2430f599752ee96d8e41e4d856"
 
 export const ARCADE_TITLE_ROWS = Object.freeze([
   {
@@ -10785,7 +10785,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2acc",
     "coreName": "fbneo",
     "setName": "sf2acc",
-    "titleZh": "街头霸王 2：冠军版 加速版（加速版!，盗版，第1套）",
+    "titleZh": "街头霸王 2：冠军版 加速版（盗版，第1套）",
     "titleEn": "Street Fighter II': Champion Edition (Accelerator!, bootleg, set 1)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10798,8 +10798,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2acc",
       "Street Fighter II': Champion Edition (Accelerator!, bootleg, set 1)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 加速版（加速版!，盗版，第1套）",
-      "街头霸王2冠军版加速版（加速版盗版第1套）",
+      "街头霸王 2：冠军版 加速版（盗版，第1套）",
+      "街头霸王2冠军版加速版（盗版第1套）",
       "sf2ce"
     ]
   },
@@ -10807,7 +10807,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2acca",
     "coreName": "fbneo",
     "setName": "sf2acca",
-    "titleZh": "街头霸王 2：冠军版 加速版（加速版!，盗版，第2套）",
+    "titleZh": "街头霸王 2：冠军版 加速版（盗版，第2套）",
     "titleEn": "Street Fighter II': Champion Edition (Accelerator!, bootleg, set 2)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10820,8 +10820,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2acca",
       "Street Fighter II': Champion Edition (Accelerator!, bootleg, set 2)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 加速版（加速版!，盗版，第2套）",
-      "街头霸王2冠军版加速版（加速版盗版第2套）",
+      "街头霸王 2：冠军版 加速版（盗版，第2套）",
+      "街头霸王2冠军版加速版（盗版第2套）",
       "sf2ce"
     ]
   },
@@ -10829,7 +10829,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2accp2",
     "coreName": "fbneo",
     "setName": "sf2accp2",
-    "titleZh": "街头霸王 2：冠军版 加速版 第二部分（加速版 第二部分，盗版）",
+    "titleZh": "街头霸王 2：冠军版 加速版 第二部分（盗版）",
     "titleEn": "Street Fighter II': Champion Edition (Accelerator Pt.II, bootleg)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10842,8 +10842,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2accp2",
       "Street Fighter II': Champion Edition (Accelerator Pt.II, bootleg)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 加速版 第二部分（加速版 第二部分，盗版）",
-      "街头霸王2冠军版加速版第二部分（加速版第二部分盗版）",
+      "街头霸王 2：冠军版 加速版 第二部分（盗版）",
+      "街头霸王2冠军版加速版第二部分（盗版）",
       "sf2ce"
     ]
   },
@@ -10895,7 +10895,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2dkot2",
     "coreName": "fbneo",
     "setName": "sf2dkot2",
-    "titleZh": "街头霸王 2：冠军版 双 KO 极速版 II（双 KO 极速版 II，盗版）",
+    "titleZh": "街头霸王 2：冠军版 双 KO 极速版 II（盗版）",
     "titleEn": "Street Fighter II': Champion Edition (Double K.O. Turbo II, bootleg)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10908,8 +10908,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2dkot2",
       "Street Fighter II': Champion Edition (Double K.O. Turbo II, bootleg)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 双 KO 极速版 II（双 KO 极速版 II，盗版）",
-      "街头霸王2冠军版双KO极速版II（双KO极速版II盗版）",
+      "街头霸王 2：冠军版 双 KO 极速版 II（盗版）",
+      "街头霸王2冠军版双KO极速版II（盗版）",
       "sf2ce"
     ]
   },
@@ -10939,7 +10939,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2rb",
     "coreName": "fbneo",
     "setName": "sf2rb",
-    "titleZh": "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第1套）",
+    "titleZh": "街头霸王 2：冠军版 彩虹版（盗版，第1套）",
     "titleEn": "Street Fighter II': Champion Edition (Rainbow, bootleg, set 1)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10952,8 +10952,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2rb",
       "Street Fighter II': Champion Edition (Rainbow, bootleg, set 1)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第1套）",
-      "街头霸王2冠军版彩虹版（彩虹版盗版第1套）",
+      "街头霸王 2：冠军版 彩虹版（盗版，第1套）",
+      "街头霸王2冠军版彩虹版（盗版第1套）",
       "sf2ce"
     ]
   },
@@ -10961,7 +10961,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2rb2",
     "coreName": "fbneo",
     "setName": "sf2rb2",
-    "titleZh": "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第2套）",
+    "titleZh": "街头霸王 2：冠军版 彩虹版（盗版，第2套）",
     "titleEn": "Street Fighter II': Champion Edition (Rainbow, bootleg, set 2)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10974,8 +10974,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2rb2",
       "Street Fighter II': Champion Edition (Rainbow, bootleg, set 2)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第2套）",
-      "街头霸王2冠军版彩虹版（彩虹版盗版第2套）",
+      "街头霸王 2：冠军版 彩虹版（盗版，第2套）",
+      "街头霸王2冠军版彩虹版（盗版第2套）",
       "sf2ce"
     ]
   },
@@ -10983,7 +10983,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2rb3",
     "coreName": "fbneo",
     "setName": "sf2rb3",
-    "titleZh": "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第3套）",
+    "titleZh": "街头霸王 2：冠军版 彩虹版（盗版，第3套）",
     "titleEn": "Street Fighter II': Champion Edition (Rainbow, bootleg, set 3)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -10996,8 +10996,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2rb3",
       "Street Fighter II': Champion Edition (Rainbow, bootleg, set 3)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第3套）",
-      "街头霸王2冠军版彩虹版（彩虹版盗版第3套）",
+      "街头霸王 2：冠军版 彩虹版（盗版，第3套）",
+      "街头霸王2冠军版彩虹版（盗版第3套）",
       "sf2ce"
     ]
   },
@@ -11005,7 +11005,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2rb4",
     "coreName": "fbneo",
     "setName": "sf2rb4",
-    "titleZh": "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第4套）",
+    "titleZh": "街头霸王 2：冠军版 彩虹版（盗版，第4套）",
     "titleEn": "Street Fighter II': Champion Edition (Rainbow, bootleg, set 4)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -11018,8 +11018,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2rb4",
       "Street Fighter II': Champion Edition (Rainbow, bootleg, set 4)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 彩虹版（彩虹版，盗版，第4套）",
-      "街头霸王2冠军版彩虹版（彩虹版盗版第4套）",
+      "街头霸王 2：冠军版 彩虹版（盗版，第4套）",
+      "街头霸王2冠军版彩虹版（盗版第4套）",
       "sf2ce"
     ]
   },
@@ -11027,7 +11027,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2red",
     "coreName": "fbneo",
     "setName": "sf2red",
-    "titleZh": "街头霸王 2：冠军版 红浪版（红浪版，盗版，第1套）",
+    "titleZh": "街头霸王 2：冠军版 红浪版（盗版，第1套）",
     "titleEn": "Street Fighter II': Champion Edition (Red Wave, bootleg, set 1)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -11040,8 +11040,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2red",
       "Street Fighter II': Champion Edition (Red Wave, bootleg, set 1)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 红浪版（红浪版，盗版，第1套）",
-      "街头霸王2冠军版红浪版（红浪版盗版第1套）",
+      "街头霸王 2：冠军版 红浪版（盗版，第1套）",
+      "街头霸王2冠军版红浪版（盗版第1套）",
       "sf2ce"
     ]
   },
@@ -11049,7 +11049,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "fbneo:sf2v004",
     "coreName": "fbneo",
     "setName": "sf2v004",
-    "titleZh": "街头霸王 2：冠军版 V004（V004，盗版，第1套）",
+    "titleZh": "街头霸王 2：冠军版 V004（盗版，第1套）",
     "titleEn": "Street Fighter II': Champion Edition (V004, bootleg, set 1)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -11062,8 +11062,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "fbneo:sf2v004",
       "Street Fighter II': Champion Edition (V004, bootleg, set 1)",
       "Street Fighter II': Champion Edition",
-      "街头霸王 2：冠军版 V004（V004，盗版，第1套）",
-      "街头霸王2冠军版V004（V004盗版第1套）",
+      "街头霸王 2：冠军版 V004（盗版，第1套）",
+      "街头霸王2冠军版V004（盗版第1套）",
       "sf2ce"
     ]
   },
@@ -13355,7 +13355,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "mame2003_plus:sf2koryu",
     "coreName": "mame2003_plus",
     "setName": "sf2koryu",
-    "titleZh": "街头霸王 2：冠军版 Kouryu（Kouryu）（盗版）",
+    "titleZh": "街头霸王 2：冠军版 Kouryu（盗版）",
     "titleEn": "Street Fighter II' - Champion Edition (Kouryu)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -13368,8 +13368,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "mame2003_plus:sf2koryu",
       "Street Fighter II' - Champion Edition (Kouryu)",
       "Street Fighter II' - Champion Edition",
-      "街头霸王 2：冠军版 Kouryu（Kouryu）（盗版）",
-      "街头霸王2冠军版Kouryu（Kouryu）（盗版）",
+      "街头霸王 2：冠军版 Kouryu（盗版）",
+      "街头霸王2冠军版Kouryu（盗版）",
       "sf2ce"
     ]
   },
@@ -13377,7 +13377,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "mame2003_plus:sf2m4",
     "coreName": "mame2003_plus",
     "setName": "sf2m4",
-    "titleZh": "街头霸王 2：冠军版 M4（M4）（盗版）",
+    "titleZh": "街头霸王 2：冠军版 M4（盗版）",
     "titleEn": "Street Fighter II' - Champion Edition (M4)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -13390,8 +13390,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "mame2003_plus:sf2m4",
       "Street Fighter II' - Champion Edition (M4)",
       "Street Fighter II' - Champion Edition",
-      "街头霸王 2：冠军版 M4（M4）（盗版）",
-      "街头霸王2冠军版M4（M4）（盗版）",
+      "街头霸王 2：冠军版 M4（盗版）",
+      "街头霸王2冠军版M4（盗版）",
       "sf2ce"
     ]
   },
@@ -13399,7 +13399,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "mame2003_plus:sf2m5",
     "coreName": "mame2003_plus",
     "setName": "sf2m5",
-    "titleZh": "街头霸王 2：冠军版 M5（M5）（盗版）",
+    "titleZh": "街头霸王 2：冠军版 M5（盗版）",
     "titleEn": "Street Fighter II' - Champion Edition (M5)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -13412,8 +13412,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "mame2003_plus:sf2m5",
       "Street Fighter II' - Champion Edition (M5)",
       "Street Fighter II' - Champion Edition",
-      "街头霸王 2：冠军版 M5（M5）（盗版）",
-      "街头霸王2冠军版M5（M5）（盗版）",
+      "街头霸王 2：冠军版 M5（盗版）",
+      "街头霸王2冠军版M5（盗版）",
       "sf2ce"
     ]
   },
@@ -13421,7 +13421,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "mame2003_plus:sf2m6",
     "coreName": "mame2003_plus",
     "setName": "sf2m6",
-    "titleZh": "街头霸王 2：冠军版 M6（M6）（盗版）",
+    "titleZh": "街头霸王 2：冠军版 M6（盗版）",
     "titleEn": "Street Fighter II' - Champion Edition (M6)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -13434,8 +13434,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "mame2003_plus:sf2m6",
       "Street Fighter II' - Champion Edition (M6)",
       "Street Fighter II' - Champion Edition",
-      "街头霸王 2：冠军版 M6（M6）（盗版）",
-      "街头霸王2冠军版M6（M6）（盗版）",
+      "街头霸王 2：冠军版 M6（盗版）",
+      "街头霸王2冠军版M6（盗版）",
       "sf2ce"
     ]
   },
@@ -13443,7 +13443,7 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
     "key": "mame2003_plus:sf2m7",
     "coreName": "mame2003_plus",
     "setName": "sf2m7",
-    "titleZh": "街头霸王 2：冠军版 M7（M7）（盗版）",
+    "titleZh": "街头霸王 2：冠军版 M7（盗版）",
     "titleEn": "Street Fighter II' - Champion Edition (M7)",
     "familyRootSetName": "sf2ce",
     "datParentSetName": "sf2ce",
@@ -13456,8 +13456,8 @@ export const ARCADE_TITLE_ROWS = Object.freeze([
       "mame2003_plus:sf2m7",
       "Street Fighter II' - Champion Edition (M7)",
       "Street Fighter II' - Champion Edition",
-      "街头霸王 2：冠军版 M7（M7）（盗版）",
-      "街头霸王2冠军版M7（M7）（盗版）",
+      "街头霸王 2：冠军版 M7（盗版）",
+      "街头霸王2冠军版M7（盗版）",
       "sf2ce"
     ]
   },
