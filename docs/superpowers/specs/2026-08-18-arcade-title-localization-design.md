@@ -30,7 +30,7 @@
 }
 ```
 
-生成脚本从合同读取 656 条，按 parent/family 继承基础中文名，再应用显式版本覆盖；输出固定排序文件和 `catalogSha256`。每条合同必须恰好一条目录记录，重复英文标题也必须保持 set 级别区分。
+生成脚本同时读取候选合同与 `cores.json`，把每行 `coreArtifactId` 映射成真实 API `coreName`；不能直接把候选的 `source=fbalpha2012` 当作 core，因为这些行实际分配到 `fbalpha2012_cps1`、`fbalpha2012_cps2` 和 `fbalpha2012`。脚本按跨核心的全局 set parent/family 关系继承基础中文名，再应用显式版本覆盖；输出固定排序文件和 `catalogSha256`。每条合同必须恰好一条目录记录，重复英文标题也必须保持 set 级别区分。
 
 新增 `src/composables/useArcadeTitle.js`（纯函数也可单测）提供：
 
@@ -56,4 +56,3 @@
 4. 共享辅助函数：Player/Rooms 使用同一标题解析结果，不改变原有路由和房间字段。
 
 完成标准是全部现有 Node、组件和浏览器测试通过，新增目录完整性测试通过，生产构建成功；部署仅替换前端 release，保留现有数据库、服务自启、Nginx 和其他站点。
-
